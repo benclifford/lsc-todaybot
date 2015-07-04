@@ -8,14 +8,16 @@
 -- used https://www.fpcomplete.com/school/to-infinity-and-beyond/competition-winners/interfacing-with-restful-json-apis
 -- as a tutorial
 
+import Prelude hiding (mapM)
 import Control.Applicative ( (<$>) )
 import Control.Concurrent (threadDelay)
 import Control.Lens
-import Control.Monad
+import Control.Monad hiding (mapM)
 import Data.Maybe (fromMaybe)
 import Data.Time.Calendar
 import Data.Time.Clock
 import Data.Time.LocalTime
+import Data.Traversable (mapM)
 import Data.Aeson ( Value(..) )
 import Data.Aeson.Lens (key, _Bool, _String, _Array)
 import Data.Yaml (decodeFile)
@@ -25,7 +27,6 @@ import Data.Monoid ( (<>) )
 import qualified Control.Lens.Getter as Getter
 import qualified Text.Parsec as P
 import qualified Data.Vector as V
-import qualified Data.Traversable as TR
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as TE
@@ -57,7 +58,7 @@ mainLoop configuration = do
 
   hotPosts <- getHotPosts bearerToken
 
-  TR.mapM (processPost bearerToken) hotPosts
+  mapM (processPost bearerToken) hotPosts
 
   sleep 13
 
