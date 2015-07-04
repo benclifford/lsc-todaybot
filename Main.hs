@@ -22,7 +22,15 @@ import Data.Aeson ( Value(..) )
 import Data.Aeson.Lens (key, _Bool, _String, _Array)
 import Data.Yaml (decodeFile)
 import System.IO (hPutStrLn, stderr)
-import Network.Wreq
+import Network.Wreq (auth,
+                     basicAuth,
+                     defaults,
+                     getWith,
+                     header,
+                     param,
+                     postWith,
+                     responseBody,
+                     Part (..) )
 import Data.Monoid ( (<>) )
 import qualified Control.Lens.Getter as Getter
 import qualified Text.Parsec as P
