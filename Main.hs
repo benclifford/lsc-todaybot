@@ -126,7 +126,7 @@ processPost bearerToken post = do
   -- stay away...
   let safeToChange = flair_text == "Today" || flair_text == ""
 
-  putStrLn $ "Safe to change? " ++ (show safeToChange)
+  putStrLn $ "Safe to change? " <> (show safeToChange)
 
   when safeToChange $ do
   -- today?
@@ -136,10 +136,10 @@ processPost bearerToken post = do
 
     case parsedDate of
       Right postDate -> do
-        putStrLn $ "Post date is " ++ (show postDate)
+        putStrLn $ "Post date is " <> (show postDate)
         now <- localDay <$> getCurrentLocalTime
 
-        putStrLn $ "Current date is " ++ (show now)
+        putStrLn $ "Current date is " <> (show now)
 
         -- posts move through a sequence of no flair, then today,
         -- then archived, except we do not archive stickied posts.
@@ -147,10 +147,10 @@ processPost bearerToken post = do
            | postDate == now -> forceFlair bearerToken post "Today" "today"
            | postDate < now && not stickied -> forceFlair bearerToken post "Archived" "archived"
 
-      Left e -> putStrLn $ "Date did not parse: " ++ (show e)
+      Left e -> putStrLn $ "Date did not parse: " <> (show e)
 
     let interestCheck = (T.toCaseFold "[Interest") `T.isPrefixOf` (T.toCaseFold title)
-    putStrLn $ "Interest check? " ++ (show interestCheck)
+    putStrLn $ "Interest check? " <> (show interestCheck)
 
     when interestCheck $ forceFlair bearerToken post "Interest Check" "interestcheck"
 
