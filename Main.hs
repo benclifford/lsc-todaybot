@@ -57,9 +57,7 @@ mainLoop configuration = do
 
   hotPosts <- getHotPosts bearerToken
 
-  let (d :: V.Vector Value) = hotPosts ^. key "data" . key "children" . _Array
-
-  TR.mapM (processPost bearerToken) d
+  TR.mapM (processPost bearerToken) hotPosts
 
   sleep 13
 
@@ -81,7 +79,7 @@ authenticate configuration = do
 
   return $ resp ^. responseBody . key "access_token" . _String
 
-getHotPosts :: BearerToken -> IO BSL.ByteString
+getHotPosts :: BearerToken -> IO (V.Vector Value)
 getHotPosts bearerToken = do
   progress "Getting hot posts"
 
@@ -89,7 +87,7 @@ getHotPosts bearerToken = do
            & authorizationHeader bearerToken
            & userAgentHeader
   resp <- getWith opts ("https://oauth.reddit.com/r/LondonSocialClub/hot") 
-  return $ resp ^. responseBody
+  return $ resp ^. responseBody . key "data" . key "children" . _Array
 
 
 readConfiguration = do
