@@ -100,7 +100,7 @@ getHotPosts bearerToken = do
 
 
 readConfiguration = do
-  (Just (configYaml :: Value)) <- decodeFile "secrets.yaml"
+  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> decodeFile "secrets.yaml"
   return $ Configuration {
     username = configYaml ^. key "username" . _String,
     password = configYaml ^. key "password" . _String,
