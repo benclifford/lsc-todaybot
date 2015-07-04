@@ -96,7 +96,6 @@ readConfiguration = do
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
 processPost bearerToken post = do
-  putStrLn $ "=== Processing post ==="
   let kind = post ^. key "kind" . _String
   let i = post ^. key "data" . key "id" . _String
   let kindid = kind <> "_" <> i
@@ -104,9 +103,9 @@ processPost bearerToken post = do
   let flair_css = post ^. key "data" . key "link_flair_css_class" . _String
   let title = post ^. key "data" . key "title" . _String
   let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
-  T.putStrLn $ " Title (id): " <> title <> " (" <> kindid <> ")"
-  T.putStrLn $ "Flair (css): " <> flair_text <> " (" <> flair_css <> ")"
-  when stickied $ T.putStrLn "[Stickied]"
+  T.putStr $ " * " <> title <> " (" <> kindid <> ") [" <> flair_text <> "/" <> flair_css <> "]"
+  when stickied $ T.putStr " [Stickied]"
+  T.putStrLn ""
 
   -- if flair has been modified (other than to Today) then
   -- stay away...
