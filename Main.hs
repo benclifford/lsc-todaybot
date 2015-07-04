@@ -98,12 +98,12 @@ _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 processPost bearerToken post = do
   let kind = post ^. key "kind" . _String
   let i = post ^. key "data" . key "id" . _String
-  let kindid = kind <> "_" <> i
+  let fullname = kind <> "_" <> i
   let flair_text = post ^. key "data" . key "link_flair_text" . _String
   let flair_css = post ^. key "data" . key "link_flair_css_class" . _String
   let title = post ^. key "data" . key "title" . _String
   let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
-  T.putStr $ " * " <> title <> " (" <> kindid <> ") [" <> flair_text <> "/" <> flair_css <> "]"
+  T.putStr $ " * " <> title <> " (" <> fullname <> ") [" <> flair_text <> "/" <> flair_css <> "]"
   when stickied $ T.putStr " [Stickied]"
   T.putStrLn ""
 
@@ -179,8 +179,8 @@ getCurrentLocalTime = do
 forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. key "kind" . _String
   let i = post ^. key "data" . key "id" . _String
-  let kindid = kind <> "_" <> i
-  T.putStrLn $ "Forcing flair for " <> kindid <> " to " <> forced_flair <> " if necessary"
+  let fullname = kind <> "_" <> i
+  T.putStrLn $ "Forcing flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
   let flair_text = post ^. key "data" . key "link_flair_text" . _String
   let flair_css = post ^. key "data" . key "link_flair_css_class" . _String
   if flair_text == forced_flair && flair_css == forced_flair_css
@@ -189,7 +189,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
             let opts = defaults
                      & authorizationHeader bearerToken
                      & param "api_type" .~ ["json"]
-                     & param "link" .~ [kindid]
+                     & param "link" .~ [fullname]
                      & param "text" .~ [forced_flair]
                      & param "css_class" .~ [forced_flair_css]
 
