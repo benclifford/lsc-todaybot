@@ -11,11 +11,12 @@
 import Control.Applicative ( (<$>) )
 import Control.Lens
 import Control.Monad
+import Data.Maybe (fromMaybe)
 import Data.Time.Calendar
 import Data.Time.Clock
 import Data.Time.LocalTime
 import Data.Aeson ( Value(..) )
-import Data.Aeson.Lens (key, _String, _Array)
+import Data.Aeson.Lens (key, _Bool, _String, _Array)
 import Data.Yaml (decodeFile)
 import System.IO (hPutStrLn, stderr)
 import Network.Wreq
@@ -102,8 +103,10 @@ processPost bearerToken post = do
   let flair_text = post ^. key "data" . key "link_flair_text" . _String
   let flair_css = post ^. key "data" . key "link_flair_css_class" . _String
   let title = post ^. key "data" . key "title" . _String
+  let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
   T.putStrLn $ " Title (id): " <> title <> " (" <> kindid <> ")"
   T.putStrLn $ "Flair (css): " <> flair_text <> " (" <> flair_css <> ")"
+  when stickied $ T.putStrLn "[Stickied]"
 
   -- if flair has been modified (other than to Today) then
   -- stay away...
@@ -123,9 +126,12 @@ processPost bearerToken post = do
         now <- localDay <$> getCurrentLocalTime
 
         putStrLn $ "Current date is " ++ (show now)
-        if | postDate < now -> forceFlair bearerToken post "Archived" "archived"
+
+        -- posts move through a sequence of no flair, then today,
+        -- then archived, except we do not archive stickied posts.
+        if | postDate > now -> return () -- no flair change
            | postDate == now -> forceFlair bearerToken post "Today" "today"
-           | postDate > now -> return () -- no flair change
+           | postDate < now && not stickied -> forceFlair bearerToken post "Archived" "archived"
 
       Left e -> putStrLn $ "Date did not parse: " ++ (show e)
 
