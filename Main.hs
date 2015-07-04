@@ -9,6 +9,7 @@
 -- as a tutorial
 
 import Control.Applicative ( (<$>) )
+import Control.Concurrent (threadDelay)
 import Control.Lens
 import Control.Monad
 import Data.Maybe (fromMaybe)
@@ -45,6 +46,11 @@ main = do
   putStrLn "todaybot"
 
   configuration <- readConfiguration   
+
+  forever (mainLoop configuration)
+
+mainLoop configuration = do
+
   bearerToken <- authenticate configuration
 
   T.putStrLn $ "Bearer token is " <> bearerToken
@@ -54,6 +60,8 @@ main = do
   let (d :: V.Vector Value) = hotPosts ^. key "data" . key "children" . _Array
 
   TR.mapM (processPost bearerToken) d
+
+  sleep 13
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
@@ -199,4 +207,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
 
 
 progress s = hPutStrLn stderr s
+
+-- | sleeps for specified number of minutes
+sleep mins = threadDelay (mins * 60 * 1000000)
 
