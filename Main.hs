@@ -8,16 +8,17 @@
 -- used https://www.fpcomplete.com/school/to-infinity-and-beyond/competition-winners/interfacing-with-restful-json-apis
 -- as a tutorial
 
-import Prelude hiding (mapM)
+import Prelude hiding (mapM_)
 import Control.Applicative ( (<$>) )
 import Control.Concurrent (threadDelay)
+import Control.Exception (catch, SomeException (..) )
 import Control.Lens
-import Control.Monad hiding (mapM)
+import Control.Monad hiding (mapM_)
 import Data.Maybe (fromMaybe)
 import Data.Time.Calendar
 import Data.Time.Clock
 import Data.Time.LocalTime
-import Data.Traversable (mapM)
+import Data.Foldable (mapM_)
 import Data.Aeson ( Value(..) )
 import Data.Aeson.Lens (key, _Bool, _String, _Array)
 import Data.Yaml (decodeFile)
@@ -56,14 +57,15 @@ main = do
 
   configuration <- readConfiguration   
 
-  forever (mainLoop configuration)
+  forever $ (tryIgnoringExceptions (mainLoop configuration)) >> sleep 13
 
 mainLoop configuration = do
 
   bearerToken <- authenticate configuration
   hotPosts <- getHotPosts bearerToken
-  mapM (processPost bearerToken) hotPosts
-  sleep 13
+  mapM_ (processPost bearerToken) hotPosts
+
+tryIgnoringExceptions a = a `catch` \(e :: SomeException) -> putStrLn $ "Exception: " <> (show e)
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
