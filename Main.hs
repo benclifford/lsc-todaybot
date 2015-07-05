@@ -61,13 +61,8 @@ main = do
 mainLoop configuration = do
 
   bearerToken <- authenticate configuration
-
-  T.putStrLn $ "Bearer token is " <> bearerToken
-
   hotPosts <- getHotPosts bearerToken
-
   mapM (processPost bearerToken) hotPosts
-
   sleep 13
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
@@ -86,7 +81,10 @@ authenticate configuration = do
 
   resp <- postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
 
-  return $ resp ^. responseBody . key "access_token" . _String
+  let bearerToken = resp ^. responseBody . key "access_token" . _String
+  T.putStrLn $ "Bearer token is " <> bearerToken
+
+  return $ bearerToken
 
 getHotPosts :: BearerToken -> IO (V.Vector Value)
 getHotPosts bearerToken = do
