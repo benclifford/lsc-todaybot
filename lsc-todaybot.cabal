@@ -19,7 +19,7 @@ executable lsc-todaybot
   main-is:             Main.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.6 && <4.7
+  build-depends:       base
                       ,aeson
                       ,bytestring
                       ,lens
