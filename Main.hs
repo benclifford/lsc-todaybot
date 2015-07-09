@@ -83,10 +83,7 @@ authenticate configuration = do
 
   resp <- postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
 
-  let bearerToken = resp ^. responseBody . key "access_token" . _String
-  T.putStrLn $ "Bearer token is " <> bearerToken
-
-  return $ bearerToken
+  return $ resp ^. responseBody . key "access_token" . _String
 
 getHotPosts :: BearerToken -> IO (V.Vector Value)
 getHotPosts bearerToken = do
