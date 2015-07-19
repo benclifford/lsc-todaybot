@@ -139,10 +139,16 @@ processPost bearerToken post = do
         putStrLn $ "Current date is " <> (show now)
 
         -- posts move through a sequence of no flair, then today,
-        -- then archived, except we do not archive stickied posts.
+        -- then archived, except we do not archive stickied posts
+        -- because that looks weird with a greyed out post being stickied.
+        -- I'm unsure if the right thing to do is unsticky and archive or
+        -- to leave stickied, with the today flair substituted back to
+        -- nothing - then if someone unstickies, it will get archived flair
+        -- in a future run.
         if | postDate > now -> return () -- no flair change
            | postDate == now -> forceFlair bearerToken post "Today" "today"
            | postDate < now && not stickied -> forceFlair bearerToken post "Archived" "archived"
+           | postDate < now && stickied -> forceFlair bearerToken post "" ""
 
       Left e -> putStrLn $ "Date did not parse: " <> (show e)
 
