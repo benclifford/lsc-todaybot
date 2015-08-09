@@ -9,7 +9,7 @@
 -- as a tutorial
 
 import Prelude hiding (mapM_)
-import Control.Applicative ( (<$>) )
+import Control.Applicative ( (<$>), (<|>), many )
 import Control.Concurrent (threadDelay)
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
@@ -168,7 +168,20 @@ processPost bearerToken post = do
 -- parser for subject line dates...
 -- expecting (from automod config)
 --   e (regex): "\\[([0-9]{1,2}[/.-][0-9]{1,2}[/.-]([0-9]{2}|[0-9]{4})|interest( check)?)\\].*"
-datedSubjectLine = do
+
+datedSubjectLine = prefixDatedSubjectLine
+               <|> postfixDatedSubjectLine
+
+prefixDatedSubjectLine = dateBlock
+  -- ignore the rest of the line...
+
+postfixDatedSubjectLine = do
+  many $ P.noneOf "["
+  d <- dateBlock
+  P.eof
+  return d
+
+dateBlock = do
   P.char '['
   day <- dateComponent
   P.char '/'
@@ -176,8 +189,6 @@ datedSubjectLine = do
   P.char '/'
   year <- yearComponent
   P.char ']'
-  -- ignore the rest of the line...
-
   return $ fromGregorian year month day
 
 dateComponent = read <$> (P.many $ P.oneOf "0123456789")
