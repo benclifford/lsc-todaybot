@@ -63,7 +63,7 @@ mainLoop configuration = do
 
   bearerToken <- authenticate configuration
   hotPosts <- getHotPosts bearerToken
-  mapM_ (processPost bearerToken) hotPosts
+  mapM_ (\v -> tryIgnoringExceptions (processPost bearerToken v)) hotPosts
 
 tryIgnoringExceptions a = a `catch` \(e :: SomeException) -> putStrLn $ "Exception: " <> (show e)
 
