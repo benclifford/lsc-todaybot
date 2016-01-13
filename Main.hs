@@ -111,12 +111,12 @@ readConfiguration = do
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
 processPost bearerToken post = do
-  let kind = post ^. key "kind" . _String
-  let i = post ^. key "data" . key "id" . _String
+  let kind = post ^. postKind
+  let i = post ^. postId
   let fullname = kind <> "_" <> i
-  let flair_text = post ^. key "data" . key "link_flair_text" . _String
-  let flair_css = post ^. key "data" . key "link_flair_css_class" . _String
-  let title = post ^. key "data" . key "title" . _String
+  let flair_text = post ^. postFlairText
+  let flair_css = post ^. postFlairCss
+  let title = post ^. postTitle
   let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
   T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
   when stickied $ T.putStr " [Stickied]"
@@ -208,13 +208,19 @@ getCurrentLocalTime = do
   tz <- getCurrentTimeZone
   return $ utcToLocalTime tz nowUTC
 
+postKind = key "kind" . _String
+postId = key "data" . key "id" . _String
+postFlairText = key "data" . key "link_flair_text" . _String
+postFlairCss = key "data" . key "link_flair_css_class" . _String
+postTitle = key "data" . key "title" . _String
+
 forceFlair bearerToken post forced_flair forced_flair_css = do
-  let kind = post ^. key "kind" . _String
-  let i = post ^. key "data" . key "id" . _String
+  let kind = post ^. postKind
+  let i = post ^. postId
   let fullname = kind <> "_" <> i
   T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
-  let flair_text = post ^. key "data" . key "link_flair_text" . _String
-  let flair_css = post ^. key "data" . key "link_flair_css_class" . _String
+  let flair_text = post ^. postFlairText
+  let flair_css = post ^. postFlairCss
   if flair_text == forced_flair && flair_css == forced_flair_css
     then progress "    No flair change necessary"
     else do progress "    Updating flair"
