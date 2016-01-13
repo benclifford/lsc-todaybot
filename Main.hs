@@ -64,8 +64,8 @@ main = do
 mainLoop configuration = do
 
   bearerToken <- authenticate configuration
-  hotPosts <- getHotPosts bearerToken
-  mapM_ (skipExceptions . (processPost bearerToken)) hotPosts
+  posts <- getHotPosts bearerToken
+  mapM_ (skipExceptions . (processPost bearerToken)) posts
   progress "Pass completed."
 
 skipExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
