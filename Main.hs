@@ -192,14 +192,16 @@ dateBlock = do
   P.char ']'
   return $ fromGregorian year month day
 
-dateComponent = read <$> (P.many $ P.oneOf "0123456789")
+dateComponent = read <$> digits
 
-yearComponent = do
-  year <- read <$> (P.many $ P.oneOf "0123456789")
-  let normalisedYear = case () of
-        _ | year > 2000 -> year
-        _ | year > 0 && year < 100 -> 2000 + year -- hello, 2100!
-  return normalisedYear
+yearComponent = (normaliseYear . read) <$> digits
+
+digits = (P.many $ P.oneOf "0123456789")
+
+normaliseYear year =
+  case () of
+    _ | year > 2000 -> year
+    _ | year >= 0 && year < 100 -> 2000 + year -- hello, 2100!
 
 getCurrentLocalTime = do
   nowUTC <- getCurrentTime
