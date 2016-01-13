@@ -139,8 +139,6 @@ processPost bearerToken post = do
         progress $ "    Post date is " <> (show postDate)
         now <- localDay <$> getCurrentLocalTime
 
-        progress $ "    Current date is " <> (show now)
-
         -- posts move through a sequence of no flair, then today,
         -- then archived, except we do not archive stickied posts
         -- because that looks weird with a greyed out post being stickied.
@@ -148,7 +146,7 @@ processPost bearerToken post = do
         -- to leave stickied, with the today flair substituted back to
         -- nothing - then if someone unstickies, it will get archived flair
         -- in a future run.
-        if | postDate > now -> return () -- no flair change
+        if | postDate > now -> progress $ "    Skipping: Post is in future"
            | postDate == now -> forceFlair bearerToken post "Today" "today"
            | postDate < now && not stickied -> forceFlair bearerToken post "Archived" "archived"
            | postDate < now && stickied -> forceFlair bearerToken post "" ""
