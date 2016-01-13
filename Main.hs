@@ -53,7 +53,7 @@ data Configuration = Configuration {
 type BearerToken = T.Text
 
 main = do
-  putStrLn "todaybot"
+  progress "todaybot"
 
   configuration <- readConfiguration   
 
@@ -64,8 +64,9 @@ mainLoop configuration = do
   bearerToken <- authenticate configuration
   hotPosts <- getHotPosts bearerToken
   mapM_ (\v -> tryIgnoringExceptions (processPost bearerToken v)) hotPosts
+  progress "Pass completed."
 
-tryIgnoringExceptions a = a `catch` \(e :: SomeException) -> putStrLn $ "Exception: " <> (show e)
+tryIgnoringExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
@@ -115,17 +116,17 @@ processPost bearerToken post = do
   let flair_css = post ^. key "data" . key "link_flair_css_class" . _String
   let title = post ^. key "data" . key "title" . _String
   let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
-  T.putStr $ " * " <> title <> " (" <> fullname <> ") [" <> flair_text <> "/" <> flair_css <> "]"
+  T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
   when stickied $ T.putStr " [Stickied]"
   T.putStrLn ""
 
   -- if flair has been modified (other than to Today) then
   -- stay away...
-  let safeToChange = flair_text == "Today" || flair_text == ""
+  let changeableFlair = flair_text == "Today" || flair_text == ""
 
-  putStrLn $ "Safe to change? " <> (show safeToChange)
+  progress $ "    Changeable flair? " <> (show changeableFlair)
 
-  when safeToChange $ do
+  when changeableFlair $ do
   -- today?
   -- can we parse the date out of the subject line?
   -- let's use parsec...
@@ -133,10 +134,10 @@ processPost bearerToken post = do
 
     case parsedDate of
       Right postDate -> do
-        putStrLn $ "Post date is " <> (show postDate)
+        progress $ "    Post date is " <> (show postDate)
         now <- localDay <$> getCurrentLocalTime
 
-        putStrLn $ "Current date is " <> (show now)
+        progress $ "    Current date is " <> (show now)
 
         -- posts move through a sequence of no flair, then today,
         -- then archived, except we do not archive stickied posts
@@ -150,10 +151,10 @@ processPost bearerToken post = do
            | postDate < now && not stickied -> forceFlair bearerToken post "Archived" "archived"
            | postDate < now && stickied -> forceFlair bearerToken post "" ""
 
-      Left e -> putStrLn $ "Date did not parse: " <> (show e)
+      Left e -> progress $ "    Skipping: Date did not parse: " <> (show e)
 
     let interestCheck = (T.toCaseFold "[Interest") `T.isPrefixOf` (T.toCaseFold title)
-    putStrLn $ "Interest check? " <> (show interestCheck)
+    progress $ "    Interest check? " <> (show interestCheck)
 
     when interestCheck $ forceFlair bearerToken post "Interest Check" "interestcheck"
 
@@ -209,12 +210,12 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. key "kind" . _String
   let i = post ^. key "data" . key "id" . _String
   let fullname = kind <> "_" <> i
-  T.putStrLn $ "Forcing flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
+  T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
   let flair_text = post ^. key "data" . key "link_flair_text" . _String
   let flair_css = post ^. key "data" . key "link_flair_css_class" . _String
   if flair_text == forced_flair && flair_css == forced_flair_css
-    then putStrLn "No flair change necessary"
-    else do putStrLn "Flair update necessary"
+    then progress "    No flair change necessary"
+    else do progress "    Updating flair"
             let opts = defaults
                      & authorizationHeader bearerToken
                      & param "api_type" .~ ["json"]
