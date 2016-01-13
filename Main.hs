@@ -57,7 +57,9 @@ main = do
 
   configuration <- readConfiguration   
 
-  forever $ (skipExceptions (mainLoop configuration)) >> sleep 13
+  forever $ do
+    skipExceptions $ mainLoop configuration
+    sleep 13
 
 mainLoop configuration = do
 
