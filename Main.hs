@@ -57,16 +57,16 @@ main = do
 
   configuration <- readConfiguration   
 
-  forever $ (tryIgnoringExceptions (mainLoop configuration)) >> sleep 13
+  forever $ (skipExceptions (mainLoop configuration)) >> sleep 13
 
 mainLoop configuration = do
 
   bearerToken <- authenticate configuration
   hotPosts <- getHotPosts bearerToken
-  mapM_ (\v -> tryIgnoringExceptions (processPost bearerToken v)) hotPosts
+  mapM_ (\v -> skipExceptions (processPost bearerToken v)) hotPosts
   progress "Pass completed."
 
-tryIgnoringExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
+skipExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
