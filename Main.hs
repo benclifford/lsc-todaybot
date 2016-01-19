@@ -88,6 +88,8 @@ authenticate configuration = do
 
   return $ resp ^. responseBody . key "access_token" . _String
 
+hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
+
 getHotPosts :: BearerToken -> IO (V.Vector Value)
 getHotPosts bearerToken = do
   progress "Getting hot posts"
@@ -95,7 +97,7 @@ getHotPosts bearerToken = do
   let opts = defaults
            & authorizationHeader bearerToken
            & userAgentHeader
-  resp <- getWith opts ("https://oauth.reddit.com/r/LondonSocialClub/hot") 
+  resp <- getWith opts hotPostsUrl
   return $ resp ^. responseBody . key "data" . key "children" . _Array
 
 
