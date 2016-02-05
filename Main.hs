@@ -34,6 +34,7 @@ import Data.Time.LocalTime
 import Data.Foldable (mapM_)
 import Data.Aeson ( Value(..) )
 import Data.Aeson.Lens (key, _Bool, _String, _Array)
+import Data.Void
 import Data.Yaml (decodeFile)
 import System.IO (hPutStrLn, stderr)
 import Network.Wreq (auth,
@@ -70,14 +71,18 @@ main = runLift $ do
   configuration <- readConfiguration   
 
   forever $ do
-    skipExceptions $ mainLoop configuration
+    {- skipExceptions $ -} 
+    mainLoop configuration
     sleep 13
 
+-- more type signatures that don't pin right
+-- mainLoop :: SetMember Lift (Lift IO) r => Configuration -> Eff r ()
+mainLoop :: Configuration -> Eff (Lift IO :> Data.Void.Void) ()
 mainLoop configuration = do
 
   bearerToken <- authenticate configuration
   posts <- getHotPosts bearerToken
-  mapM_ (skipExceptions . (processPost bearerToken)) posts
+  mapM_ ({- skipExceptions . -} (processPost bearerToken)) posts
   progress "Pass completed."
 
 -- skipExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
@@ -106,7 +111,7 @@ authenticate configuration = do
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
--- getHotPosts :: SetMember Lift (Lift IO) r => BearerToken -> Eff r (V.Vector Value)
+getHotPosts :: SetMember Lift (Lift IO) r => T.Text -> Eff r (V.Vector Value)
 getHotPosts bearerToken = do
   progress "Getting hot posts"
 
@@ -117,8 +122,10 @@ getHotPosts bearerToken = do
   return $ resp ^. responseBody . key "data" . key "children" . _Array
 
 
+-- Why doesn't this signature work?
+-- readConfiguration :: SetMember Lift (Lift IO) r => Eff r Configuration
 readConfiguration = do
-  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> (lift . decodeFile) "secrets.yaml"
+  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> (lift $ decodeFile "secrets.yaml")
   return $ Configuration {
     username = configYaml ^. key "username" . _String,
     password = configYaml ^. key "password" . _String,
@@ -128,6 +135,14 @@ readConfiguration = do
 
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
+-- This one gives a type-checking error too
+-- (see readConfiguration error)
+-- It seems to be something to do with lenses, and ParsecT, so
+-- perhaps stuff was being inferred previously about Value or
+-- something like that, that is now not being inferred because
+-- extensible-effects are decoupling things more? If I figure that
+-- out it is possibly interesting to write about?
+-- processPost :: SetMember Lift (Lift IO) r => T.Text -> Value -> Eff r ()
 processPost bearerToken post = do
   let kind = post ^. postKind
   let i = post ^. postId
@@ -221,6 +236,7 @@ normaliseYear year =
     _ | year > 2000 -> year
     _ | year >= 0 && year < 100 -> 2000 + year -- hello, 2100!
 
+getCurrentLocalTime :: SetMember Lift (Lift IO) r => Eff r LocalTime
 getCurrentLocalTime = do
   nowUTC <- lift $ getCurrentTime
   tz <- lift $ getCurrentTimeZone
@@ -232,6 +248,7 @@ postFlairText = key "data" . key "link_flair_text" . _String
 postFlairCss = key "data" . key "link_flair_css_class" . _String
 postTitle = key "data" . key "title" . _String
 
+forceFlair :: SetMember Lift (Lift IO) r => T.Text -> Value -> T.Text -> T.Text -> Eff r ()
 forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. postKind
   let i = post ^. postId
@@ -253,9 +270,31 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
             -- TODO check if successful
             return ()
 
+{-
+Using :: _  we get this message
+Main.hs:257:13:
+    Found hole ‘_’ with type: String -> Eff r1 ()
+    Where: ‘r1’ is a rigid type variable bound by
+                the inferred type of
+                progress :: (extensible-effects-1.11.0.3:Data.OpenUnion.Internal.Base.MemberUImpl
+                               extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.OU2
+                               Lift
+                               (Lift IO)
+                               r1,
+                             extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.Member'
+                               (Lift IO) r1
+                             ~ 'True) =>
+                            String -> Eff r1 ()
+                at Main.hs:258:1
+    To use the inferred type, enable PartialTypeSignatures
+    In the type signature for ‘progress’: _
+-}
 
+progress :: SetMember Lift (Lift IO) r => String -> Eff r ()
 progress s = lift $ hPutStrLn stderr s
 
 -- | sleeps for specified number of minutes
+
+sleep :: SetMember Lift (Lift IO) r => Int -> Eff r ()
 sleep mins = lift $ threadDelay (mins * 60 * 1000000)
 
