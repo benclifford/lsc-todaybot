@@ -2,6 +2,17 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiWayIf #-}
 
+{-# LANGUAGE GADTs #-} -- needed for extensible-effects lift IO to work?
+
+-- all of these come from the top of extensible-effects lift module
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ExistentialQuantification #-}
+
 -- todaybot
 -- ben clifford benc@hawaga.org.uk
 
@@ -11,6 +22,8 @@
 import Prelude hiding (mapM_)
 import Control.Applicative ( (<$>), (<|>), many )
 import Control.Concurrent (threadDelay)
+import Control.Eff -- TODO: tighten
+import Control.Eff.Lift (lift, runLift, Lift (..) )
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
 import Control.Monad hiding (mapM_)
@@ -52,9 +65,8 @@ data Configuration = Configuration {
 
 type BearerToken = T.Text
 
-main = do
+main = runLift $ do
   progress "todaybot"
-
   configuration <- readConfiguration   
 
   forever $ do
@@ -68,12 +80,16 @@ mainLoop configuration = do
   mapM_ (skipExceptions . (processPost bearerToken)) posts
   progress "Pass completed."
 
-skipExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
+-- skipExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
+skipExceptions = id
+-- no implementation of exception handling in extensible effects branch...
+-- I don't understand how IO exceptions work in this model, so leave
+-- it 'till later?
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
 
-authenticate :: Configuration -> IO BearerToken
+-- authenticate :: SetMember Lift (Lift IO) r => Configuration -> Eff r BearerToken
 authenticate configuration = do
   progress "Authenticating"
 
@@ -84,25 +100,25 @@ authenticate configuration = do
            & param "password" .~ [password configuration]
            & auth ?~ basicAuth (app_id configuration) (app_secret configuration)
 
-  resp <- postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
+  resp <- lift $ postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
 
   return $ resp ^. responseBody . key "access_token" . _String
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
-getHotPosts :: BearerToken -> IO (V.Vector Value)
+-- getHotPosts :: SetMember Lift (Lift IO) r => BearerToken -> Eff r (V.Vector Value)
 getHotPosts bearerToken = do
   progress "Getting hot posts"
 
   let opts = defaults
            & authorizationHeader bearerToken
            & userAgentHeader
-  resp <- getWith opts hotPostsUrl
+  resp <- lift $ getWith opts hotPostsUrl
   return $ resp ^. responseBody . key "data" . key "children" . _Array
 
 
 readConfiguration = do
-  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> decodeFile "secrets.yaml"
+  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> (lift . decodeFile) "secrets.yaml"
   return $ Configuration {
     username = configYaml ^. key "username" . _String,
     password = configYaml ^. key "password" . _String,
@@ -120,9 +136,9 @@ processPost bearerToken post = do
   let flair_css = post ^. postFlairCss
   let title = post ^. postTitle
   let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
-  T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
-  when stickied $ T.putStr " [Stickied]"
-  T.putStrLn ""
+  lift $ T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
+  when stickied $ lift $ T.putStr " [Stickied]"
+  lift $ T.putStrLn ""
 
   -- if flair has been modified (other than to Today) then
   -- stay away...
@@ -206,8 +222,8 @@ normaliseYear year =
     _ | year >= 0 && year < 100 -> 2000 + year -- hello, 2100!
 
 getCurrentLocalTime = do
-  nowUTC <- getCurrentTime
-  tz <- getCurrentTimeZone
+  nowUTC <- lift $ getCurrentTime
+  tz <- lift $ getCurrentTimeZone
   return $ utcToLocalTime tz nowUTC
 
 postKind = key "kind" . _String
@@ -220,7 +236,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
-  T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
+  lift $ T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
   let flair_text = post ^. postFlairText
   let flair_css = post ^. postFlairCss
   if flair_text == forced_flair && flair_css == forced_flair_css
@@ -233,13 +249,13 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
                      & param "text" .~ [forced_flair]
                      & param "css_class" .~ [forced_flair_css]
 
-            postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
+            lift $ postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
             -- TODO check if successful
             return ()
 
 
-progress s = hPutStrLn stderr s
+progress s = lift $ hPutStrLn stderr s
 
 -- | sleeps for specified number of minutes
-sleep mins = threadDelay (mins * 60 * 1000000)
+sleep mins = lift $ threadDelay (mins * 60 * 1000000)
 

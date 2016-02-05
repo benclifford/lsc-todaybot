@@ -22,6 +22,7 @@ executable lsc-todaybot
   build-depends:       base
                       ,aeson
                       ,bytestring
+                      ,extensible-effects
                       ,lens
                       ,lens-aeson
                       ,parsec
