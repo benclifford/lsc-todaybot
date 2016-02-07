@@ -115,8 +115,8 @@ Main.hs:154:3:
            .... }
 
 -}
--- mainLoop :: SetMember Lift (Lift IO) r => Configuration -> Eff r ()
-mainLoop :: Configuration -> Eff (Lift IO :> Data.Void.Void) ()
+mainLoop :: SetMember Lift (Lift IO) r => Configuration -> Eff r ()
+-- mainLoop :: Configuration -> Eff (Lift IO :> Data.Void.Void) ()
 mainLoop configuration = do
 
   bearerToken <- authenticate configuration
@@ -133,7 +133,8 @@ skipExceptions = id
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
 
--- authenticate :: SetMember Lift (Lift IO) r => Configuration -> Eff r BearerToken
+authenticate :: SetMember Lift (Lift IO) r => Configuration -> Eff r BearerToken
+-- authenticate :: _
 authenticate configuration = do
   progress "Authenticating"
 
