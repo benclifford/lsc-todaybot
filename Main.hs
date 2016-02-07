@@ -5,6 +5,8 @@
 {-# LANGUAGE GADTs #-} -- needed for extensible-effects lift IO to work?
 {-# LANGUAGE AllowAmbiguousTypes #-} -- needed for extensible-effects lift IO to work?
 
+{-# LANGUAGE BangPatterns #-} -- needed for runWriter strictness
+
 -- all of these come from the top of extensible-effects lift module
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -26,10 +28,12 @@ import Control.Concurrent (threadDelay)
 import Control.Eff -- TODO: tighten
 import Control.Eff.Exception (catchExc, runExc, throwExc, Exc (..) )
 import Control.Eff.Lift (lift, runLift, Lift (..) )
+import Control.Eff.Writer.Strict (runMonoidWriter, tell, Writer (..) )
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
 import Control.Monad hiding (mapM_)
 import Data.Maybe (fromMaybe)
+import Data.Typeable (Typeable ())
 import Data.Time.Calendar
 import Data.Time.Clock
 import Data.Time.LocalTime
@@ -72,7 +76,7 @@ type BearerToken = T.Text
 -- this runExc will silently die if we get an
 -- IO exception that has been handed up here...
 -- should probably catch and log it. TODO
-main = void $ runLift $ skipExceptionsTop $ do
+main = void $ runLift $ skipExceptionsTop $ handleWriter $ do
   progress "todaybot"
   configuration <- readConfiguration   
 
@@ -90,7 +94,7 @@ skipExceptionsTop act = do
                                         -- because it wants to be able
                                         -- to throw exceptions
 
-skipExceptions :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
+skipExceptions :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
                     -> Eff r ()
 skipExceptions act =
   catchExc act $ \(e :: IOError) -> progress $ "Skipping because of exception: " <> (show e)
@@ -135,7 +139,7 @@ Main.hs:154:3:
            .... }
 
 -}
-mainLoop :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Configuration -> Eff r ()
+mainLoop :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Configuration -> Eff r ()
 -- mainLoop :: Configuration -> Eff (Lift IO :> Data.Void.Void) ()
 mainLoop configuration = do
 
@@ -164,7 +168,7 @@ lift' a = do
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
 
-authenticate :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Configuration -> Eff r BearerToken
+authenticate :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Configuration -> Eff r BearerToken
 -- authenticate :: _
 authenticate configuration = do
   progress "Authenticating"
@@ -182,7 +186,7 @@ authenticate configuration = do
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
-getHotPosts :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => T.Text -> Eff r (V.Vector Value)
+getHotPosts :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => T.Text -> Eff r (V.Vector Value)
 getHotPosts bearerToken = do
   progress "Getting hot posts"
 
@@ -231,7 +235,7 @@ processPost :: (Data.OpenUnion.Internal.Base.MemberUImpl
                                 ~ 'True) =>
                                T.Text -> Value -> Free (Union r1) ()
 -}
-processPost :: (SetMember Lift (Lift IO) r1, Member (Exc IOError) r1) => T.Text -> Value -> Free (Union r1) ()
+processPost :: (Member (Writer String) r1, SetMember Lift (Lift IO) r1, Member (Exc IOError) r1) => T.Text -> Value -> Free (Union r1) ()
 processPost bearerToken post = do
   let kind = post ^. postKind
   let i = post ^. postId
@@ -358,7 +362,7 @@ postTitle :: (T.Text -> Const T.Text T.Text)
                  -> Value -> Const T.Text Value
 postTitle = key "data" . key "title" . _String
 
-forceFlair :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => T.Text -> Value -> T.Text -> T.Text -> Eff r ()
+forceFlair :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => T.Text -> Value -> T.Text -> T.Text -> Eff r ()
 forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. postKind
   let i = post ^. postId
@@ -400,8 +404,47 @@ Main.hs:257:13:
     In the type signature for ‘progress’: _
 -}
 
-progress :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => String -> Eff r ()
-progress s = lift' $ hPutStrLn stderr s
+-- we've moved logging to a Writer effect. Previously, this hPutStrLn
+-- has thrown exceptions, which we were catching, printing and ignoring
+-- (eg for unicode conversion problems)
+-- How does that work with a writer effect handler?
+-- Needs some thinking/playing to see if (or not) it keeps those
+-- semantics or if the error thrown at print (by the effect handler)
+-- isn't caught by skipExceptions correctly. I think if the
+-- handler for writers sits further out in the effect stack than
+-- IO and Exc IOError and uses lift', this should be ok, but unsure?
+
+-- c.f. Trace effect. but maybe i want log levels etc, which is why
+-- i'm keeping it a bit separate
+
+progress :: (Member (Writer String) r) => String -> Eff r ()
+progress s = tell s
+
+{- old impl which ignores logging until the end (and as we
+   are in an infinite loop, that end never occurs so no
+   output...)
+handleWriter :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) =>
+                               Eff (Writer String :> r) b -> Eff r b
+handleWriter act = do
+  (l,v) <- runMonoidWriter act
+  lift' $ putStrLn l
+  return v
+-}
+
+handleWriter :: Eff (Writer String :> Exc IOError :> Lift IO :> r) b -> Eff (Exc IOError :> Lift IO :> r)  b
+handleWriter act = do
+  v <- runWriterX (++) "" act
+  return v
+
+-- copied initially from runWriter in extensible-effects source
+-- runWriterX :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => (String -> String -> String) -> String -> Eff (Writer String :> r) a -> Eff r a
+runWriterX :: (String -> String -> String) -> String -> Eff (Writer String :> Exc IOError :> Lift IO :> r) a -> Eff (Exc IOError :> Lift IO :> r) a
+runWriterX accum !b = loop -- loop isn't having the two IO/IOError constraints inferred here so the handleRelay call isn't type checking
+  where
+    loop = freeMap
+           (\x -> return x) -- rather than (b,x) -- we aren't accumulating anything here...
+           (\u -> handleRelay u loop
+                  $ \(Writer w v) -> ((lift' $ putStrLn w) >> loop v)) -- <- should do the print before looping TODO
 
 -- | sleeps for specified number of minutes
 
