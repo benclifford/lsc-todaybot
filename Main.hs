@@ -3,6 +3,7 @@
 {-# LANGUAGE MultiWayIf #-}
 
 {-# LANGUAGE GADTs #-} -- needed for extensible-effects lift IO to work?
+{-# LANGUAGE AllowAmbiguousTypes #-} -- needed for extensible-effects lift IO to work?
 
 -- all of these come from the top of extensible-effects lift module
 {-# LANGUAGE TypeOperators #-}
@@ -23,6 +24,7 @@ import Prelude hiding (mapM_)
 import Control.Applicative ( (<$>), (<|>), many )
 import Control.Concurrent (threadDelay)
 import Control.Eff -- TODO: tighten
+import Control.Eff.Exception (runExc, Exc (..) )
 import Control.Eff.Lift (lift, runLift, Lift (..) )
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
@@ -37,6 +39,7 @@ import Data.Aeson.Lens (key, _Bool, _String, _Array)
 import Data.Void
 import Data.Yaml (decodeFile)
 import System.IO (hPutStrLn, stderr)
+import System.IO.Error (tryIOError)
 import Network.Wreq (auth,
                      basicAuth,
                      defaults,
@@ -66,7 +69,10 @@ data Configuration = Configuration {
 
 type BearerToken = T.Text
 
-main = runLift $ do
+-- this runExc will silently die if we get an
+-- IO exception that has been handed up here...
+-- should probably catch and log it. TODO
+main = void $ runLift $ silentlyIgnoreIOExc $ do
   progress "todaybot"
   configuration <- readConfiguration   
 
@@ -74,6 +80,10 @@ main = runLift $ do
     {- skipExceptions $ -} 
     mainLoop configuration
     sleep 13
+
+silentlyIgnoreIOExc :: Eff (Exc IOError :> (Lift IO :> Void)) a0
+                    -> Eff (Lift IO :> Void) (Either IOError a0)
+silentlyIgnoreIOExc = runExc
 
 -- more type signatures that don't pin right. using the more flexible signature,
 -- I get:
@@ -115,7 +125,7 @@ Main.hs:154:3:
            .... }
 
 -}
-mainLoop :: SetMember Lift (Lift IO) r => Configuration -> Eff r ()
+mainLoop :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Configuration -> Eff r ()
 -- mainLoop :: Configuration -> Eff (Lift IO :> Data.Void.Void) ()
 mainLoop configuration = do
 
@@ -135,10 +145,17 @@ skipExceptions = id
 -- I don't understand how IO exceptions work in this model, so leave
 -- it 'till later?
 
+lift' :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => IO a -> Eff r a
+lift' a = do
+  r <- lift $ tryIOError a
+  case r of
+    (Right v) -> return v
+    (Left e) -> error $ "benc lift' exception: " <> (show e)
+
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
 
-authenticate :: SetMember Lift (Lift IO) r => Configuration -> Eff r BearerToken
+authenticate :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Configuration -> Eff r BearerToken
 -- authenticate :: _
 authenticate configuration = do
   progress "Authenticating"
@@ -150,28 +167,31 @@ authenticate configuration = do
            & param "password" .~ [password configuration]
            & auth ?~ basicAuth (app_id configuration) (app_secret configuration)
 
-  resp <- lift $ postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
+  resp <- lift' $ do
+                    rv <- (postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part]))
+                    fail "TEST FAIL"
+                    return rv
 
   return $ resp ^. responseBody . key "access_token" . _String
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
-getHotPosts :: SetMember Lift (Lift IO) r => T.Text -> Eff r (V.Vector Value)
+getHotPosts :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => T.Text -> Eff r (V.Vector Value)
 getHotPosts bearerToken = do
   progress "Getting hot posts"
 
   let opts = defaults
            & authorizationHeader bearerToken
            & userAgentHeader
-  resp <- lift $ getWith opts hotPostsUrl
+  resp <- lift' $ getWith opts hotPostsUrl
   return $ resp ^. responseBody . key "data" . key "children" . _Array
 
 
 -- Why doesn't this signature work?
-readConfiguration :: SetMember Lift (Lift IO) r => Eff r Configuration
+readConfiguration :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r Configuration
 -- readConfiguration :: _
 readConfiguration = do
-  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> (lift $ decodeFile "secrets.yaml")
+  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> (lift' $ decodeFile "secrets.yaml")
   return $ Configuration {
     username = configYaml ^. key "username" . _String,
     password = configYaml ^. key "password" . _String,
@@ -205,7 +225,7 @@ processPost :: (Data.OpenUnion.Internal.Base.MemberUImpl
                                 ~ 'True) =>
                                T.Text -> Value -> Free (Union r1) ()
 -}
-processPost :: SetMember Lift (Lift IO) r1 => T.Text -> Value -> Free (Union r1) ()
+processPost :: (SetMember Lift (Lift IO) r1, Member (Exc IOError) r1) => T.Text -> Value -> Free (Union r1) ()
 processPost bearerToken post = do
   let kind = post ^. postKind
   let i = post ^. postId
@@ -214,9 +234,9 @@ processPost bearerToken post = do
   let flair_css = post ^. postFlairCss
   let title = post ^. postTitle
   let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
-  lift $ T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
-  when stickied $ lift $ T.putStr " [Stickied]"
-  lift $ T.putStrLn ""
+  lift' $ T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
+  when stickied $ lift' $ T.putStr " [Stickied]"
+  lift' $ T.putStrLn ""
 
   -- if flair has been modified (other than to Today) then
   -- stay away...
@@ -304,10 +324,10 @@ normaliseYear year =
     _ | year > 2000 -> year
     _ | year >= 0 && year < 100 -> 2000 + year -- hello, 2100!
 
-getCurrentLocalTime :: SetMember Lift (Lift IO) r => Eff r LocalTime
+getCurrentLocalTime :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r LocalTime
 getCurrentLocalTime = do
-  nowUTC <- lift $ getCurrentTime
-  tz <- lift $ getCurrentTimeZone
+  nowUTC <- lift' $ getCurrentTime
+  tz <- lift' $ getCurrentTimeZone
   return $ utcToLocalTime tz nowUTC
 
 -- TODO: i think this signature can probably be written
@@ -332,12 +352,12 @@ postTitle :: (T.Text -> Const T.Text T.Text)
                  -> Value -> Const T.Text Value
 postTitle = key "data" . key "title" . _String
 
-forceFlair :: SetMember Lift (Lift IO) r => T.Text -> Value -> T.Text -> T.Text -> Eff r ()
+forceFlair :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => T.Text -> Value -> T.Text -> T.Text -> Eff r ()
 forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
-  lift $ T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
+  lift' $ T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
   let flair_text = post ^. postFlairText
   let flair_css = post ^. postFlairCss
   if flair_text == forced_flair && flair_css == forced_flair_css
@@ -350,7 +370,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
                      & param "text" .~ [forced_flair]
                      & param "css_class" .~ [forced_flair_css]
 
-            lift $ postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
+            lift' $ postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
             -- TODO check if successful
             return ()
 
@@ -374,11 +394,54 @@ Main.hs:257:13:
     In the type signature for ‘progress’: _
 -}
 
-progress :: SetMember Lift (Lift IO) r => String -> Eff r ()
-progress s = lift $ hPutStrLn stderr s
+progress :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => String -> Eff r ()
+progress s = lift' $ hPutStrLn stderr s
 
 -- | sleeps for specified number of minutes
 
-sleep :: SetMember Lift (Lift IO) r => Int -> Eff r ()
-sleep mins = lift $ threadDelay (mins * 60 * 1000000)
+sleep :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Int -> Eff r ()
+sleep mins = lift' $ threadDelay (mins * 60 * 1000000)
 
+-- when i try to put in exceptions, this, which I don't even understand:
+-- so let's try allowambiguous types, and putting a scoped type signature
+-- on the invocation to runExc...
+-- that gives different impenetrable errors
+{-
+Building lsc-todaybot-0.1.0.0...
+Preprocessing executable 'lsc-todaybot' for lsc-todaybot-0.1.0.0...
+[1 of 1] Compiling Main             ( Main.hs, dist/dist-sandbox-985723b5/build/lsc-todaybot/lsc-todaybot-tmp/Main.o )
+
+Main.hs:220:16:
+    Unsafe overlapping instances for extensible-effects-1.11.0.3:Data.OpenUnion.Internal.Base.MemberImpl
+                                       extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.OU2
+                                       (Exc IOError)
+                                       r0
+    The matching instance is:
+      instance [safe] extensible-effects-1.11.0.3:Data.OpenUnion.Internal.Base.MemberConstraint
+                        extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.OU2
+                        t
+                        r =>
+                      extensible-effects-1.11.0.3:Data.OpenUnion.Internal.Base.MemberImpl
+                        extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.OU2
+                        t
+                        r
+        -- Defined in ‘extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2’
+    It is compiled in a Safe module and as such can only
+    overlap instances from the same module, however it
+    overlaps the following instances from different modules:
+[BENC: so should I be seeing a list of instances at this point?
+This is from ghc 7.10.3 but maybe ghc 8 would be interesting?
+]
+    In the ambiguity check for the type signature for ‘processPost’:
+      processPost :: forall r1 r.
+                     (SetMember Lift (Lift IO) r1, Member (Exc IOError) r) =>
+                     T.Text -> Value -> Free (Union r1) ()
+    To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
+    In the type signature for ‘processPost’:
+      processPost :: (SetMember Lift (Lift IO) r1,
+                      Member (Exc IOError) r) =>
+                     T.Text -> Value -> Free (Union r1) ()
+cabal: Error: some packages failed to install:
+lsc-todaybot-0.1.0.0 failed during the building phase. The exception was:
+ExitFailure 1
+-}
