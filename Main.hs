@@ -28,6 +28,7 @@ import Control.Concurrent (threadDelay)
 import Control.Eff -- TODO: tighten
 import Control.Eff.Exception (catchExc, runExc, throwExc, Exc (..) )
 import Control.Eff.Lift (lift, runLift, Lift (..) )
+import Control.Eff.Reader.Lazy (ask, runReader, Reader (..))
 import Control.Eff.Writer.Strict (runMonoidWriter, tell, Writer (..) )
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
@@ -43,7 +44,7 @@ import Data.Aeson ( Value(..) )
 import Data.Aeson.Lens (key, _Bool, _String, _Array)
 import Data.Void
 import Data.Yaml (decodeFile)
-import System.IO (hPutStrLn, stderr)
+import System.IO (hPutStr, hFlush, stderr, stdout)
 import System.IO.Error (tryIOError)
 import Network.Wreq (auth,
                      basicAuth,
@@ -79,10 +80,9 @@ type BearerToken = T.Text
 -- should probably catch and log it. TODO
 main = void $ runLift $ skipExceptionsTop $ handleWriter $ do
   progress "todaybot"
-  configuration <- readConfiguration   
 
-  forever $ do
-    skipExceptions $ mainLoop configuration
+  withConfiguration $ forever $ do
+    skipExceptions $ mainLoop
     sleep 1
 
 skipExceptionsTop :: Eff (Exc IOError :> (Lift IO :> Void)) a0
@@ -140,11 +140,9 @@ Main.hs:154:3:
            .... }
 
 -}
-mainLoop :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Configuration -> Eff r ()
--- mainLoop :: Configuration -> Eff (Lift IO :> Data.Void.Void) ()
-mainLoop configuration = do
-
-  bearerToken <- authenticate configuration
+mainLoop :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
+mainLoop = do
+  bearerToken <- authenticate
   posts <- getHotPosts bearerToken
   mapM_ (skipExceptions . (processPost bearerToken)) posts -- this could be a traversible rather than a monad?
   progress "Pass completed."
@@ -169,10 +167,10 @@ lift' a = do
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
 
-authenticate :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Configuration -> Eff r BearerToken
--- authenticate :: _
-authenticate configuration = do
+authenticate :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r BearerToken
+authenticate = do
   progress "Authenticating"
+  configuration <- getConfiguration
 
   let opts = defaults
            & userAgentHeader
@@ -197,18 +195,6 @@ getHotPosts bearerToken = do
   resp <- lift' $ getWith opts hotPostsUrl
   return $ resp ^. responseBody . key "data" . key "children" . _Array
 
-
--- Why doesn't this signature work?
-readConfiguration :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r Configuration
--- readConfiguration :: _
-readConfiguration = do
-  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> (lift' $ decodeFile "secrets.yaml")
-  return $ Configuration {
-    username = configYaml ^. key "username" . _String,
-    password = configYaml ^. key "password" . _String,
-    app_id = configYaml ^. key "app_id" . _ByteString,
-    app_secret = configYaml ^. key "app_secret" . _ByteString
-  }
 
 _ByteString :: (BSS8.ByteString -> Const BSS8.ByteString BSS8.ByteString)
                  -> Value -> Const BSS8.ByteString Value
@@ -460,7 +446,7 @@ runWriterX accum !b = loop -- loop isn't having the two IO/IOError constraints i
     loop = freeMap
            (\x -> return x) -- rather than (b,x) -- we aren't accumulating anything here...
            (\u -> handleRelay u loop
-                  $ \(Writer w v) -> ((lift' $ putStr w) >> loop v)) -- <- should do the print before looping TODO
+                  $ \(Writer w v) -> ((lift' $ hPutStr stdout w >> hFlush stdout) >> loop v)) -- <- should do the print before looping TODO
 
 -- | sleeps for specified number of minutes
 
@@ -510,3 +496,20 @@ cabal: Error: some packages failed to install:
 lsc-todaybot-0.1.0.0 failed during the building phase. The exception was:
 ExitFailure 1
 -}
+
+withConfiguration act = do
+  c <- readConfiguration
+  runReader act c
+
+getConfiguration :: (Member (Reader Configuration) r) => Eff r Configuration
+getConfiguration = ask
+
+readConfiguration :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r Configuration
+readConfiguration = do
+  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> (lift' $ decodeFile "secrets.yaml")
+  return $ Configuration {
+    username = configYaml ^. key "username" . _String,
+    password = configYaml ^. key "password" . _String,
+    app_id = configYaml ^. key "app_id" . _ByteString,
+    app_secret = configYaml ^. key "app_secret" . _ByteString
+  }
