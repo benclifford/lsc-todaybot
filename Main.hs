@@ -24,7 +24,7 @@ import Prelude hiding (mapM_)
 import Control.Applicative ( (<$>), (<|>), many )
 import Control.Concurrent (threadDelay)
 import Control.Eff -- TODO: tighten
-import Control.Eff.Exception (runExc, Exc (..) )
+import Control.Eff.Exception (runExc, throwExc, Exc (..) )
 import Control.Eff.Lift (lift, runLift, Lift (..) )
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
@@ -72,7 +72,7 @@ type BearerToken = T.Text
 -- this runExc will silently die if we get an
 -- IO exception that has been handed up here...
 -- should probably catch and log it. TODO
-main = void $ runLift $ silentlyIgnoreIOExc $ do
+main = void $ runLift $ skipExceptions $ do
   progress "todaybot"
   configuration <- readConfiguration   
 
@@ -81,9 +81,15 @@ main = void $ runLift $ silentlyIgnoreIOExc $ do
     mainLoop configuration
     sleep 13
 
-silentlyIgnoreIOExc :: Eff (Exc IOError :> (Lift IO :> Void)) a0
-                    -> Eff (Lift IO :> Void) (Either IOError a0)
-silentlyIgnoreIOExc = runExc
+skipExceptions :: Eff (Exc IOError :> (Lift IO :> Void)) a0
+                    -> Eff (Lift IO :> Void) ()
+skipExceptions act = do
+  r <- runExc act
+  case r of Right v -> return ()
+            Left e -> lift $ putStrLn $ "Skipping because of exception: " <> (show e)
+                                        -- can't use "progress" here
+                                        -- because it wants to be able
+                                        -- to throw exceptions
 
 -- more type signatures that don't pin right. using the more flexible signature,
 -- I get:
@@ -140,7 +146,6 @@ mainLoop configuration = do
 -- throw an exception if running in a $LANG that cannot output those;
 -- network problems problems causing an entire run to be abandoned.
 -- skipExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
-skipExceptions = id
 -- no implementation of exception handling in extensible effects branch...
 -- I don't understand how IO exceptions work in this model, so leave
 -- it 'till later?
@@ -150,7 +155,7 @@ lift' a = do
   r <- lift $ tryIOError a
   case r of
     (Right v) -> return v
-    (Left e) -> error $ "benc lift' exception: " <> (show e)
+    (Left ex) -> throwExc ex
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
