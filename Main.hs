@@ -124,6 +124,11 @@ mainLoop configuration = do
   mapM_ ({- skipExceptions . -} (processPost bearerToken)) posts
   progress "Pass completed."
 
+-- skipExceptions implements a deliberate "log, abandon this bit, and
+-- carry on" policy. Problems this has dealt with in the past:
+-- swedish letters in post titles, causing the logging system to
+-- throw an exception if running in a $LANG that cannot output those;
+-- network problems problems causing an entire run to be abandoned.
 -- skipExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
 skipExceptions = id
 -- no implementation of exception handling in extensible effects branch...
