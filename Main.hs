@@ -168,7 +168,8 @@ getHotPosts bearerToken = do
 
 
 -- Why doesn't this signature work?
--- readConfiguration :: SetMember Lift (Lift IO) r => Eff r Configuration
+readConfiguration :: SetMember Lift (Lift IO) r => Eff r Configuration
+-- readConfiguration :: _
 readConfiguration = do
   configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> (lift $ decodeFile "secrets.yaml")
   return $ Configuration {
@@ -178,6 +179,8 @@ readConfiguration = do
     app_secret = configYaml ^. key "app_secret" . _ByteString
   }
 
+_ByteString :: (BSS8.ByteString -> Const BSS8.ByteString BSS8.ByteString)
+                 -> Value -> Const BSS8.ByteString Value
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
 -- This one gives a type-checking error too
