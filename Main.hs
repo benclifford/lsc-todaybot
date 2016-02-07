@@ -176,10 +176,7 @@ authenticate configuration = do
            & param "password" .~ [password configuration]
            & auth ?~ basicAuth (app_id configuration) (app_secret configuration)
 
-  resp <- lift' $ do
-                    rv <- (postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part]))
-                    fail "TEST FAIL"
-                    return rv
+  resp <- lift' $ postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
 
   return $ resp ^. responseBody . key "access_token" . _String
 
