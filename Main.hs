@@ -244,9 +244,9 @@ processPost bearerToken post = do
   let flair_css = post ^. postFlairCss
   let title = post ^. postTitle
   let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
-  lift' $ T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
-  when stickied $ lift' $ T.putStr " [Stickied]"
-  lift' $ T.putStrLn ""
+  progressPT $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
+  when stickied $ progressPT " [Stickied]"
+  progress ""
 
   -- if flair has been modified (other than to Today) then
   -- stay away...
@@ -367,7 +367,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
-  lift' $ T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
+  progressT $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
   let flair_text = post ^. postFlairText
   let flair_css = post ^. postFlairCss
   if flair_text == forced_flair && flair_css == forced_flair_css
@@ -418,7 +418,13 @@ Main.hs:257:13:
 -- i'm keeping it a bit separate
 
 progress :: (Member (Writer String) r) => String -> Eff r ()
-progress s = tell s
+progress s = tell $ s ++ "\n"
+
+progressPT :: (Member (Writer String) r) => T.Text -> Eff r ()
+progressPT s = tell (T.unpack s)
+
+progressT :: (Member (Writer String) r) => T.Text -> Eff r ()
+progressT s = tell $ (T.unpack s) ++ "\n"
 
 {- old impl which ignores logging until the end (and as we
    are in an infinite loop, that end never occurs so no
@@ -444,7 +450,7 @@ runWriterX accum !b = loop -- loop isn't having the two IO/IOError constraints i
     loop = freeMap
            (\x -> return x) -- rather than (b,x) -- we aren't accumulating anything here...
            (\u -> handleRelay u loop
-                  $ \(Writer w v) -> ((lift' $ putStrLn w) >> loop v)) -- <- should do the print before looping TODO
+                  $ \(Writer w v) -> ((lift' $ putStr w) >> loop v)) -- <- should do the print before looping TODO
 
 -- | sleeps for specified number of minutes
 
