@@ -24,7 +24,7 @@ import Prelude hiding (mapM_)
 import Control.Applicative ( (<$>), (<|>), many )
 import Control.Concurrent (threadDelay)
 import Control.Eff -- TODO: tighten
-import Control.Eff.Exception (runExc, throwExc, Exc (..) )
+import Control.Eff.Exception (catchExc, runExc, throwExc, Exc (..) )
 import Control.Eff.Lift (lift, runLift, Lift (..) )
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
@@ -72,24 +72,28 @@ type BearerToken = T.Text
 -- this runExc will silently die if we get an
 -- IO exception that has been handed up here...
 -- should probably catch and log it. TODO
-main = void $ runLift $ skipExceptions $ do
+main = void $ runLift $ skipExceptionsTop $ do
   progress "todaybot"
   configuration <- readConfiguration   
 
   forever $ do
-    {- skipExceptions $ -} 
-    mainLoop configuration
-    sleep 13
+    skipExceptions $ mainLoop configuration
+    sleep 1
 
-skipExceptions :: Eff (Exc IOError :> (Lift IO :> Void)) a0
+skipExceptionsTop :: Eff (Exc IOError :> (Lift IO :> Void)) a0
                     -> Eff (Lift IO :> Void) ()
-skipExceptions act = do
+skipExceptionsTop act = do
   r <- runExc act
   case r of Right v -> return ()
-            Left e -> lift $ putStrLn $ "Skipping because of exception: " <> (show e)
+            Left e -> lift $ putStrLn $ "Skipping at top level because of exception: " <> (show e)
                                         -- can't use "progress" here
                                         -- because it wants to be able
                                         -- to throw exceptions
+
+skipExceptions :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
+                    -> Eff r ()
+skipExceptions act =
+  catchExc act $ \(e :: IOError) -> progress $ "Skipping because of exception: " <> (show e)
 
 -- more type signatures that don't pin right. using the more flexible signature,
 -- I get:
@@ -137,7 +141,7 @@ mainLoop configuration = do
 
   bearerToken <- authenticate configuration
   posts <- getHotPosts bearerToken
-  mapM_ ({- skipExceptions . -} (processPost bearerToken)) posts
+  mapM_ (skipExceptions . (processPost bearerToken)) posts -- this could be a traversible rather than a monad?
   progress "Pass completed."
 
 -- skipExceptions implements a deliberate "log, abandon this bit, and
