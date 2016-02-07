@@ -75,7 +75,46 @@ main = runLift $ do
     mainLoop configuration
     sleep 13
 
--- more type signatures that don't pin right
+-- more type signatures that don't pin right. using the more flexible signature,
+-- I get:
+{-
+Main.hs:85:34:
+    Couldn't match type ‘r0’ with ‘r’
+      because type variable ‘r’ would escape its scope
+    This (rigid, skolem) type variable is bound by
+      the type signature for
+        mainLoop :: SetMember Lift (Lift IO) r => Configuration -> Eff r ()
+      at Main.hs:79:13-67
+    Expected type: Value -> Free (Union r) ()
+      Actual type: Value -> Free (Union r0) ()
+    Relevant bindings include
+      mainLoop :: Configuration -> Eff r () (bound at Main.hs:81:1)
+    In the first argument of ‘mapM_’, namely
+      ‘((processPost bearerToken))’
+    In a stmt of a 'do' block: mapM_ ((processPost bearerToken)) posts
+
+Main.hs:154:3:
+    Couldn't match type ‘extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.Member'
+                           (Lift IO) r0’
+                   with ‘'True’
+    The type variable ‘r0’ is ambiguous
+    Relevant bindings include
+      processPost :: T.Text -> Value -> Free (Union r0) ()
+        (bound at Main.hs:146:1)
+    In the expression: lift
+    In a stmt of a 'do' block:
+      lift
+      $ T.putStr
+        $ fullname
+          <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
+    In the expression:
+      do { let kind = post ^. postKind;
+           let i = post ^. postId;
+           let fullname = kind <> "_" <> i;
+           let flair_text = post ^. postFlairText;
+           .... }
+
+-}
 -- mainLoop :: SetMember Lift (Lift IO) r => Configuration -> Eff r ()
 mainLoop :: Configuration -> Eff (Lift IO :> Data.Void.Void) ()
 mainLoop configuration = do
@@ -142,7 +181,22 @@ _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 -- something like that, that is now not being inferred because
 -- extensible-effects are decoupling things more? If I figure that
 -- out it is possibly interesting to write about?
+-- This one is one of the weirdest errors...
 -- processPost :: SetMember Lift (Lift IO) r => T.Text -> Value -> Eff r ()
+
+-- This is what the hole-based inferer outputs:
+{-
+processPost :: (Data.OpenUnion.Internal.Base.MemberUImpl
+                                  Data.OpenUnion.Internal.OpenUnion2.OU2
+                                  Lift
+                                  (Lift IO)
+                                  r1,
+                                Data.OpenUnion.Internal.OpenUnion1.Member'
+                                  (Lift IO) r1
+                                ~ 'True) =>
+                               T.Text -> Value -> Free (Union r1) ()
+-}
+processPost :: SetMember Lift (Lift IO) r1 => T.Text -> Value -> Free (Union r1) ()
 processPost bearerToken post = do
   let kind = post ^. postKind
   let i = post ^. postId
@@ -203,6 +257,11 @@ processPost bearerToken post = do
 -- expecting (from automod config)
 --   e (regex): "\\[([0-9]{1,2}[/.-][0-9]{1,2}[/.-]([0-9]{2}|[0-9]{4})|interest( check)?)\\].*"
 
+-- This signature is needed to allow processPost to have an
+-- explicit type signature, in the same was that the reddit-specific
+-- lenses also need them. It is unclear to me why that is the case.
+-- TODO: replace with a Parsec signature...
+datedSubjectLine :: P.ParsecT T.Text () Identity Day
 datedSubjectLine = prefixDatedSubjectLine
                <|> postfixDatedSubjectLine
 
@@ -242,10 +301,26 @@ getCurrentLocalTime = do
   tz <- lift $ getCurrentTimeZone
   return $ utcToLocalTime tz nowUTC
 
+-- TODO: i think this signature can probably be written
+-- down as a lens signature.
+postKind :: (T.Text -> Const T.Text T.Text)
+                 -> Value -> Const T.Text Value
 postKind = key "kind" . _String
+
+postId :: (T.Text -> Const T.Text T.Text)
+                 -> Value -> Const T.Text Value
 postId = key "data" . key "id" . _String
+
+postFlairText :: (T.Text -> Const T.Text T.Text)
+                 -> Value -> Const T.Text Value
 postFlairText = key "data" . key "link_flair_text" . _String
+
+postFlairCss :: (T.Text -> Const T.Text T.Text)
+                 -> Value -> Const T.Text Value
 postFlairCss = key "data" . key "link_flair_css_class" . _String
+
+postTitle :: (T.Text -> Const T.Text T.Text)
+                 -> Value -> Const T.Text Value
 postTitle = key "data" . key "title" . _String
 
 forceFlair :: SetMember Lift (Lift IO) r => T.Text -> Value -> T.Text -> T.Text -> Eff r ()
