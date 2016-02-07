@@ -424,7 +424,7 @@ Main.hs:257:13:
 -- can help?). ugh type classes. Putting a signature on every
 -- literal is ugly.
 progress :: (Member (Writer String) r) => String -> Eff r ()
-progress s = progress $ s ++  "\n"
+progress s = progressP $ s ++  "\n"
 
 progress' :: (Member (Writer String) r, ToString s) => s -> Eff r ()
 progress' s = progress (toString s)
