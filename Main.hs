@@ -95,59 +95,7 @@ skipExceptionsTop act = do
                                         -- because it wants to be able
                                         -- to throw exceptions
 
-skipExceptions :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
-                    -> Eff r ()
-skipExceptions act =
-  catchExc act $ \(e :: IOError) -> progress $ "Skipping because of exception: " <> (show e)
-
--- more type signatures that don't pin right. using the more flexible signature,
--- I get:
-{-
-Main.hs:85:34:
-    Couldn't match type ‘r0’ with ‘r’
-      because type variable ‘r’ would escape its scope
-    This (rigid, skolem) type variable is bound by
-      the type signature for
-        mainLoop :: SetMember Lift (Lift IO) r => Configuration -> Eff r ()
-      at Main.hs:79:13-67
-    Expected type: Value -> Free (Union r) ()
-      Actual type: Value -> Free (Union r0) ()
-    Relevant bindings include
-      mainLoop :: Configuration -> Eff r () (bound at Main.hs:81:1)
-    In the first argument of ‘mapM_’, namely
-      ‘((processPost bearerToken))’
-    In a stmt of a 'do' block: mapM_ ((processPost bearerToken)) posts
-
-Main.hs:154:3:
-    Couldn't match type ‘extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.Member'
-                           (Lift IO) r0’
-                   with ‘'True’
-    The type variable ‘r0’ is ambiguous
-    Relevant bindings include
-      processPost :: T.Text -> Value -> Free (Union r0) ()
-        (bound at Main.hs:146:1)
-    In the expression: lift
-    In a stmt of a 'do' block:
-      lift
-      $ T.putStr
-        $ fullname
-          <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
-    In the expression:
-      do { let kind = post ^. postKind;
-           let i = post ^. postId;
-           let fullname = kind <> "_" <> i;
-           let flair_text = post ^. postFlairText;
-           .... }
-
--}
-mainLoop :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
-mainLoop = do
-  bearerToken <- authenticate
-  posts <- getHotPosts bearerToken
-  mapM_ (skipExceptions . (processPost bearerToken)) posts -- this could be a traversible rather than a monad?
-  progress "Pass completed."
-
--- skipExceptions implements a deliberate "log, abandon this bit, and
+-- | skipExceptions implements a deliberate "log, abandon this bit, and
 -- carry on" policy. Problems this has dealt with in the past:
 -- swedish letters in post titles, causing the logging system to
 -- throw an exception if running in a $LANG that cannot output those;
@@ -156,6 +104,18 @@ mainLoop = do
 -- no implementation of exception handling in extensible effects branch...
 -- I don't understand how IO exceptions work in this model, so leave
 -- it 'till later?
+
+skipExceptions :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
+                    -> Eff r ()
+skipExceptions act =
+  catchExc act $ \(e :: IOError) -> progress $ "Skipping because of exception: " <> (show e)
+
+mainLoop :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
+mainLoop = do
+  bearerToken <- authenticate
+  posts <- getHotPosts bearerToken
+  mapM_ (skipExceptions . (processPost bearerToken)) posts -- this could be a traversible rather than a monad?
+  progress "Pass completed."
 
 lift' :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => IO a -> Eff r a
 lift' a = do
@@ -200,28 +160,6 @@ _ByteString :: (BSS8.ByteString -> Const BSS8.ByteString BSS8.ByteString)
                  -> Value -> Const BSS8.ByteString Value
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
--- This one gives a type-checking error too
--- (see readConfiguration error)
--- It seems to be something to do with lenses, and ParsecT, so
--- perhaps stuff was being inferred previously about Value or
--- something like that, that is now not being inferred because
--- extensible-effects are decoupling things more? If I figure that
--- out it is possibly interesting to write about?
--- This one is one of the weirdest errors...
--- processPost :: SetMember Lift (Lift IO) r => T.Text -> Value -> Eff r ()
-
--- This is what the hole-based inferer outputs:
-{-
-processPost :: (Data.OpenUnion.Internal.Base.MemberUImpl
-                                  Data.OpenUnion.Internal.OpenUnion2.OU2
-                                  Lift
-                                  (Lift IO)
-                                  r1,
-                                Data.OpenUnion.Internal.OpenUnion1.Member'
-                                  (Lift IO) r1
-                                ~ 'True) =>
-                               T.Text -> Value -> Free (Union r1) ()
--}
 processPost :: (Member (Writer String) r1, SetMember Lift (Lift IO) r1, Member (Exc IOError) r1) => T.Text -> Value -> Free (Union r1) ()
 processPost bearerToken post = do
   let kind = post ^. postKind
@@ -270,14 +208,6 @@ processPost bearerToken post = do
     progress $ "    Interest check? " <> (show interestCheck)
 
     when interestCheck $ forceFlair bearerToken post "Interest Check" "interestcheck"
-
-  -- because we love the royal george
-  {-
-  when (   kind == "t3" 
-        && "Royal George" `T.isInfixOf` title ) $ do
-    putStrLn "Royal george matched!"
-    forceFlair bearerToken post "ROYAL GEORGE" ""
-  -}
 
 -- parser for subject line dates...
 -- expecting (from automod config)
@@ -371,26 +301,6 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
             -- TODO check if successful
             return ()
 
-{-
-Using :: _  we get this message
-Main.hs:257:13:
-    Found hole ‘_’ with type: String -> Eff r1 ()
-    Where: ‘r1’ is a rigid type variable bound by
-                the inferred type of
-                progress :: (extensible-effects-1.11.0.3:Data.OpenUnion.Internal.Base.MemberUImpl
-                               extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.OU2
-                               Lift
-                               (Lift IO)
-                               r1,
-                             extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.Member'
-                               (Lift IO) r1
-                             ~ 'True) =>
-                            String -> Eff r1 ()
-                at Main.hs:258:1
-    To use the inferred type, enable PartialTypeSignatures
-    In the type signature for ‘progress’: _
--}
-
 -- we've moved logging to a Writer effect. Previously, this hPutStrLn
 -- has thrown exceptions, which we were catching, printing and ignoring
 -- (eg for unicode conversion problems)
@@ -422,24 +332,12 @@ progressP :: (Member (Writer String) r) => String -> Eff r ()
 progressP s = tell (toString s)
 
 
-{- old impl which ignores logging until the end (and as we
-   are in an infinite loop, that end never occurs so no
-   output...)
-handleWriter :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) =>
-                               Eff (Writer String :> r) b -> Eff r b
-handleWriter act = do
-  (l,v) <- runMonoidWriter act
-  lift' $ putStrLn l
-  return v
--}
-
 handleWriter :: Eff (Writer String :> Exc IOError :> Lift IO :> r) b -> Eff (Exc IOError :> Lift IO :> r)  b
 handleWriter act = do
   v <- runWriterX (++) "" act
   return v
 
--- copied initially from runWriter in extensible-effects source
--- runWriterX :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => (String -> String -> String) -> String -> Eff (Writer String :> r) a -> Eff r a
+-- | copied initially from runWriter in extensible-effects source
 runWriterX :: (String -> String -> String) -> String -> Eff (Writer String :> Exc IOError :> Lift IO :> r) a -> Eff (Exc IOError :> Lift IO :> r) a
 runWriterX accum !b = loop -- loop isn't having the two IO/IOError constraints inferred here so the handleRelay call isn't type checking
   where
@@ -452,50 +350,6 @@ runWriterX accum !b = loop -- loop isn't having the two IO/IOError constraints i
 
 sleep :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Int -> Eff r ()
 sleep mins = lift' $ threadDelay (mins * 60 * 1000000)
-
--- when i try to put in exceptions, this, which I don't even understand:
--- so let's try allowambiguous types, and putting a scoped type signature
--- on the invocation to runExc...
--- that gives different impenetrable errors
-{-
-Building lsc-todaybot-0.1.0.0...
-Preprocessing executable 'lsc-todaybot' for lsc-todaybot-0.1.0.0...
-[1 of 1] Compiling Main             ( Main.hs, dist/dist-sandbox-985723b5/build/lsc-todaybot/lsc-todaybot-tmp/Main.o )
-
-Main.hs:220:16:
-    Unsafe overlapping instances for extensible-effects-1.11.0.3:Data.OpenUnion.Internal.Base.MemberImpl
-                                       extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.OU2
-                                       (Exc IOError)
-                                       r0
-    The matching instance is:
-      instance [safe] extensible-effects-1.11.0.3:Data.OpenUnion.Internal.Base.MemberConstraint
-                        extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.OU2
-                        t
-                        r =>
-                      extensible-effects-1.11.0.3:Data.OpenUnion.Internal.Base.MemberImpl
-                        extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2.OU2
-                        t
-                        r
-        -- Defined in ‘extensible-effects-1.11.0.3:Data.OpenUnion.Internal.OpenUnion2’
-    It is compiled in a Safe module and as such can only
-    overlap instances from the same module, however it
-    overlaps the following instances from different modules:
-[BENC: so should I be seeing a list of instances at this point?
-This is from ghc 7.10.3 but maybe ghc 8 would be interesting?
-]
-    In the ambiguity check for the type signature for ‘processPost’:
-      processPost :: forall r1 r.
-                     (SetMember Lift (Lift IO) r1, Member (Exc IOError) r) =>
-                     T.Text -> Value -> Free (Union r1) ()
-    To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
-    In the type signature for ‘processPost’:
-      processPost :: (SetMember Lift (Lift IO) r1,
-                      Member (Exc IOError) r) =>
-                     T.Text -> Value -> Free (Union r1) ()
-cabal: Error: some packages failed to install:
-lsc-todaybot-0.1.0.0 failed during the building phase. The exception was:
-ExitFailure 1
--}
 
 withConfiguration act = do
   c <- readConfiguration
