@@ -33,6 +33,7 @@ import Control.Exception (catch, SomeException (..) )
 import Control.Lens
 import Control.Monad hiding (mapM_)
 import Data.Maybe (fromMaybe)
+import Data.String.ToString 
 import Data.Typeable (Typeable ())
 import Data.Time.Calendar
 import Data.Time.Clock
@@ -244,8 +245,8 @@ processPost bearerToken post = do
   let flair_css = post ^. postFlairCss
   let title = post ^. postTitle
   let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
-  progressPT $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
-  when stickied $ progressPT " [Stickied]"
+  progressP' $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
+  when stickied $ progressP " [Stickied]"
   progress ""
 
   -- if flair has been modified (other than to Today) then
@@ -367,7 +368,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
-  progressT $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
+  progress' $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
   let flair_text = post ^. postFlairText
   let flair_css = post ^. postFlairCss
   if flair_text == forced_flair && flair_css == forced_flair_css
@@ -417,14 +418,23 @@ Main.hs:257:13:
 -- c.f. Trace effect. but maybe i want log levels etc, which is why
 -- i'm keeping it a bit separate
 
+-- ToString is annoying here, because string literals don't get
+-- automatically left alone: there's an ambiguity about which
+-- intermediate form will be used (and I don't think defaulting
+-- can help?). ugh type classes. Putting a signature on every
+-- literal is ugly.
 progress :: (Member (Writer String) r) => String -> Eff r ()
-progress s = tell $ s ++ "\n"
+progress s = progress $ s ++  "\n"
 
-progressPT :: (Member (Writer String) r) => T.Text -> Eff r ()
-progressPT s = tell (T.unpack s)
+progress' :: (Member (Writer String) r, ToString s) => s -> Eff r ()
+progress' s = progress (toString s)
 
-progressT :: (Member (Writer String) r) => T.Text -> Eff r ()
-progressT s = tell $ (T.unpack s) ++ "\n"
+progressP' :: (Member (Writer String) r, ToString s) => s -> Eff r ()
+progressP' s = progressP (toString s)
+
+progressP :: (Member (Writer String) r) => String -> Eff r ()
+progressP s = tell (toString s)
+
 
 {- old impl which ignores logging until the end (and as we
    are in an infinite loop, that end never occurs so no
