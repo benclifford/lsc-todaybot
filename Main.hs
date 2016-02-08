@@ -115,11 +115,16 @@ skipExceptions :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member 
 skipExceptions act =
   catchExc act $ \(e :: IOError) -> progress $ "Skipping because of exception: " <> (show e)
 
-mainLoop :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
+-- mainLoop :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
+-- no signature here, so that a more concrete
+-- type signature is inferred. This seems to be
+-- necessary to make withAuthentication type check
+
 mainLoop = do
-  bearerToken <- authenticate
-  posts <- getHotPosts bearerToken
-  mapM_ (skipExceptions . (processPost bearerToken)) posts -- this could be a traversible rather than a monad?
+  withAuthentication $ do
+    bearerToken <- getBearerToken
+    posts <- getHotPosts bearerToken
+    mapM_ (skipExceptions . (processPost bearerToken)) posts -- this could be a traversible rather than a monad?
   progress "Pass completed."
 
 lift' :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => IO a -> Eff r a
@@ -132,8 +137,15 @@ lift' a = do
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
 
-authenticate :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r BearerToken
-authenticate = do
+-- can't put Reader BearerToken as :> on the parameter, because the caller
+-- of this, mainLoop, does not have a concrete type representation of the
+-- effect stack?
+-- what am I trying to express here? that the supplied action has 
+-- effects of bearer token reader, config reader, logger, and
+-- the IO effects.
+withAuthentication :: (Member (Reader Configuration) e, Member (Writer String) e, SetMember Lift (Lift IO) e, Member (Exc IOError) e
+                      ) => Eff ((Reader BearerToken) :> e) v -> Eff e v
+withAuthentication act = do
   progress "Authenticating"
   configuration <- getConfiguration
 
@@ -146,7 +158,11 @@ authenticate = do
 
   resp <- lift' $ postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
 
-  return $ resp ^. responseBody . key "access_token" . _String
+  let bearerToken = resp ^. responseBody . key "access_token" . _String
+  runReader act bearerToken
+
+getBearerToken :: (Member (Reader BearerToken) r) => Eff r BearerToken
+getBearerToken = ask
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
@@ -331,7 +347,6 @@ progressP' s = progressP (toString s)
 
 progressP :: (Member (Writer String) r) => String -> Eff r ()
 progressP s = tell (toString s)
-
 
 -- | copied initially from runWriter in extensible-effects source
 handleWriter :: Eff (Writer String :> Exc IOError :> Lift IO :> r) a -> Eff (Exc IOError :> Lift IO :> r) a
