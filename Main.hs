@@ -85,7 +85,7 @@ p a = do
 -- this runExc will silently die if we get an
 -- IO exception that has been handed up here...
 -- should probably catch and log it.
-main = p $ runLift $ (runExc :: Eff (Exc IOError :> Lift IO :> Void) () -> Eff (Lift IO :> Void) (Either IOError ())) $ handleWriter $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e)) $ do
+main = p $ runLift $ (runExc :: Eff (Exc IOError :> Lift IO :> Void) () -> Eff (Lift IO :> Void) (Either IOError ())) $ handleWriter $ handleGetCurrentLocalTime $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e)) $ do
   progress "todaybot"
 
   withConfiguration $ forever $ do
@@ -497,7 +497,7 @@ getHotPosts = do
 _ByteString :: Getting BSS8.ByteString Value BSS8.ByteString
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
-processPost :: (Member (Reader BearerToken) r1, Member (Writer String) r1, SetMember Lift (Lift IO) r1) => Value -> Free (Union r1) ()
+processPost :: (Member (Reader LocalTime) r1, Member (Reader BearerToken) r1, Member (Writer String) r1, SetMember Lift (Lift IO) r1) => Value -> Free (Union r1) ()
 processPost post = do
   let fullname = post ^. postFullname
   let flair_text = post ^. postFlairText
@@ -586,11 +586,41 @@ normaliseYear year =
     _ | year > 2000 -> year
     _ | year >= 0 && year < 100 -> 2000 + year -- hello, 2100!
 
-getCurrentLocalTime :: (SetMember Lift (Lift IO) r) => Eff r LocalTime
-getCurrentLocalTime = do
-  nowUTC <- lift $ getCurrentTime
-  tz <- lift $ getCurrentTimeZone
-  return $ utcToLocalTime tz nowUTC
+-- current time effect
+-- we can use Reader (Localtime, TimeZone) rather than defining a new
+-- effect datatype.
+
+getCurrentLocalTime :: (Member (Reader LocalTime) r) => Eff r LocalTime
+getCurrentLocalTime = ask
+
+{- move this stuff down into the handler for the Reader LocalTime effect -}
+{- note that there can only be one localtime reader here. we might plausibly
+   have another -- for example, if we were in a post context, there might
+   be the post created local time... so in that case we'd have to do
+   something more fancy -}
+{- contrast this impl with handleWriter - similar implementation. can't
+   use one of the standard reader effects - because want to implement
+   this in terms of other effects -}
+{- specifically we want to run the code to get the value *every time*
+   the effect is invoked/called/(?term)
+-}
+
+handleGetCurrentLocalTime :: (SetMember Lift (Lift IO) r) => Eff (Reader LocalTime :> r) a -> Eff r a
+handleGetCurrentLocalTime = loop
+  where
+    loop :: (SetMember Lift (Lift IO) r) => Eff (Reader LocalTime :> r) a -> Eff r a
+    loop = freeMap
+           (return)
+           (\u -> handleRelay u loop readTime)
+--    write :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => (Writer String (Eff (Writer String :> r) a)) -> Eff r a
+
+    readTime :: (SetMember Lift (Lift IO) r) => Reader LocalTime (Eff (Reader LocalTime :> r) a) -> Eff r a
+    readTime (Reader k) = do
+      v <- lift $ do
+        nowUTC <- getCurrentTime
+        tz <- getCurrentTimeZone
+        return $ utcToLocalTime tz nowUTC
+      loop (k v)
 
 postFlairText :: Getting T.Text Value T.Text
 postFlairText = key "data" . key "link_flair_text" . _String
@@ -683,6 +713,8 @@ handleWriter = loop
 sleep :: (SetMember Lift (Lift IO) r) => Int -> Eff r ()
 sleep mins = lift $ threadDelay (mins * 60 * 1000000)
 
+-- | unlike handleWriter, this uses a pre-defined
+-- handler (which probably uses interpose?)
 withConfiguration act = do
   c <- readConfiguration
   runReader act c
@@ -699,3 +731,9 @@ readConfiguration = do
     app_id = configYaml ^. key "app_id" . _ByteString,
     app_secret = configYaml ^. key "app_secret" . _ByteString
   }
+
+
+-- blog: lots of "the impossible happened" ghc bugs with 7.10.3 related to skolem/escaping
+-- biggest takeaway -- type signatures. type sigs more required, unfamiliar form, type errors are nuts
+
+-- goal was to go deliberately all-out on effects.
