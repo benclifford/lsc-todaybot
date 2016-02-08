@@ -156,8 +156,8 @@ getHotPosts bearerToken = do
   return $ resp ^. responseBody . key "data" . key "children" . _Array
 
 
-_ByteString :: (BSS8.ByteString -> Const BSS8.ByteString BSS8.ByteString)
-                 -> Value -> Const BSS8.ByteString Value
+
+_ByteString :: Getting BSS8.ByteString Value BSS8.ByteString
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
 processPost :: (Member (Writer String) r1, SetMember Lift (Lift IO) r1, Member (Exc IOError) r1) => T.Text -> Value -> Free (Union r1) ()
@@ -257,26 +257,19 @@ getCurrentLocalTime = do
   tz <- lift' $ getCurrentTimeZone
   return $ utcToLocalTime tz nowUTC
 
--- TODO: i think this signature can probably be written
--- down as a lens signature.
-postKind :: (T.Text -> Const T.Text T.Text)
-                 -> Value -> Const T.Text Value
+postKind :: Getting T.Text Value T.Text
 postKind = key "kind" . _String
 
-postId :: (T.Text -> Const T.Text T.Text)
-                 -> Value -> Const T.Text Value
+postId :: Getting T.Text Value T.Text
 postId = key "data" . key "id" . _String
 
-postFlairText :: (T.Text -> Const T.Text T.Text)
-                 -> Value -> Const T.Text Value
+postFlairText :: Getting T.Text Value T.Text
 postFlairText = key "data" . key "link_flair_text" . _String
 
-postFlairCss :: (T.Text -> Const T.Text T.Text)
-                 -> Value -> Const T.Text Value
+postFlairCss :: Getting T.Text Value T.Text
 postFlairCss = key "data" . key "link_flair_css_class" . _String
 
-postTitle :: (T.Text -> Const T.Text T.Text)
-                 -> Value -> Const T.Text Value
+postTitle :: Getting T.Text Value T.Text
 postTitle = key "data" . key "title" . _String
 
 forceFlair :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => T.Text -> Value -> T.Text -> T.Text -> Eff r ()
