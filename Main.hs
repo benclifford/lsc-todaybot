@@ -187,12 +187,14 @@ postfixDatedSubjectLine = do
 dateBlock = do
   P.char '['
   day <- dateComponent
-  P.char '/'
+  dateSeparator
   month <- dateComponent
-  P.char '/'
+  dateSeparator
   year <- yearComponent
   P.char ']'
   return $ fromGregorian year month day
+
+dateSeparator = P.oneOf "/-."
 
 dateComponent = read <$> digits
 
