@@ -260,12 +260,6 @@ getCurrentLocalTime = do
   tz <- lift' $ getCurrentTimeZone
   return $ utcToLocalTime tz nowUTC
 
-postKind :: Getting T.Text Value T.Text
-postKind = key "kind" . _String
-
-postId :: Getting T.Text Value T.Text
-postId = key "data" . key "id" . _String
-
 postFlairText :: Getting T.Text Value T.Text
 postFlairText = key "data" . key "link_flair_text" . _String
 
@@ -281,8 +275,8 @@ postTitle = key "data" . key "title" . _String
 -- something applicative here?
 postFullname :: Getting T.Text Value T.Text
 postFullname f post = let
-  kind = post ^. postKind
-  i = post ^. postId
+  kind = post ^. key "kind" . _String
+  i = post ^. key "data" . key "id" . _String
   fullname = kind <> "_" <> i
   const_ra = f fullname
   const_r = getConst const_ra
