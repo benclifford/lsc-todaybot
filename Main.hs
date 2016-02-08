@@ -167,9 +167,7 @@ _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
 processPost :: (Member (Writer String) r1, SetMember Lift (Lift IO) r1, Member (Exc IOError) r1) => T.Text -> Value -> Free (Union r1) ()
 processPost bearerToken post = do
-  let kind = post ^. postKind
-  let i = post ^. postId
-  let fullname = kind <> "_" <> i
+  let fullname = post ^. postFullname
   let flair_text = post ^. postFlairText
   let flair_css = post ^. postFlairCss
   let title = post ^. postTitle
@@ -277,11 +275,22 @@ postFlairCss = key "data" . key "link_flair_css_class" . _String
 postTitle :: Getting T.Text Value T.Text
 postTitle = key "data" . key "title" . _String
 
+-- | unclear to me if there is a nicer way to
+-- make a lens that uses multiple lenses...
+-- Vaguely feels to me that there should be
+-- something applicative here?
+postFullname :: Getting T.Text Value T.Text
+postFullname f post = let
+  kind = post ^. postKind
+  i = post ^. postId
+  fullname = kind <> "_" <> i
+  const_ra = f fullname
+  const_r = getConst const_ra
+  in Const const_r
+
 forceFlair :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => T.Text -> Value -> T.Text -> T.Text -> Eff r ()
 forceFlair bearerToken post forced_flair forced_flair_css = do
-  let kind = post ^. postKind
-  let i = post ^. postId
-  let fullname = kind <> "_" <> i
+  let fullname = post ^. postFullname
   progress' $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
   let flair_text = post ^. postFlairText
   let flair_css = post ^. postFlairCss
