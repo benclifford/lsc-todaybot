@@ -333,14 +333,9 @@ progressP :: (Member (Writer String) r) => String -> Eff r ()
 progressP s = tell (toString s)
 
 
-handleWriter :: Eff (Writer String :> Exc IOError :> Lift IO :> r) b -> Eff (Exc IOError :> Lift IO :> r)  b
-handleWriter act = do
-  v <- runWriterX (++) "" act
-  return v
-
 -- | copied initially from runWriter in extensible-effects source
-runWriterX :: (String -> String -> String) -> String -> Eff (Writer String :> Exc IOError :> Lift IO :> r) a -> Eff (Exc IOError :> Lift IO :> r) a
-runWriterX accum !b = loop -- loop isn't having the two IO/IOError constraints inferred here so the handleRelay call isn't type checking
+handleWriter :: Eff (Writer String :> Exc IOError :> Lift IO :> r) a -> Eff (Exc IOError :> Lift IO :> r) a
+handleWriter = loop -- loop isn't having the two IO/IOError constraints inferred here so the handleRelay call isn't type checking
   where
     loop = freeMap
            (\x -> return x) -- rather than (b,x) -- we aren't accumulating anything here...
