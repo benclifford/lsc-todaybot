@@ -119,6 +119,30 @@ skipExceptions act =
 -- no signature here, so that a more concrete
 -- type signature is inferred. This seems to be
 -- necessary to make withAuthentication type check
+-- because withAuthentication requires (Reader BearerToken)
+-- to be at the top of the stack.
+-- but what about if we use a different but similarly behaved
+-- function to wrap some other effect, also in mainLoop?
+-- withAuthentication will requirer (Reader BearerToken) at
+-- the top of the stack and the other one will require the
+-- other effect at the top of the stack.
+-- (try this out in practice to see if it really is a problem).
+-- Maybe there is a different way to express withAuthentication,
+-- eg as an effect itself?
+-- or maybe withAuthentication an outer handler, with two
+-- effects: one to get the current bearer token, and one to force
+-- a refresh. (although potentially we have refresh tokens and
+-- so can handle that "transparently"). There wouldn't be a
+-- "withAuthentication" wrapper to label stuff as using/not using
+-- authentication -- that would be labelled as a set constraint.
+-- perhaps that is more idiomatic?
+-- more generally, there's a comment about running stuff that
+-- removes effects inside the effectful computation, rather than
+-- in the interpreter stack? (i.e. don't do it...)
+-- so we lose some (type safety? type labelling?) of effects.
+-- what does this look like for using the type system to label
+-- where exceptions can occur? that's the big place I can
+-- imagine wanting to do this kind of type safety?
 
 mainLoop = do
   withAuthentication $ do
@@ -349,14 +373,16 @@ progressP' s = progressP (toString s)
 progressP :: (Member (Writer String) r) => String -> Eff r ()
 progressP s = tell (toString s)
 
--- | copied initially from runWriter in extensible-effects source
 handleWriter :: Eff (Writer String :> Exc IOError :> Lift IO :> r) a -> Eff (Exc IOError :> Lift IO :> r) a
-handleWriter = loop -- loop isn't having the two IO/IOError constraints inferred here so the handleRelay call isn't type checking
+handleWriter = loop
   where
     loop = freeMap
-           (\x -> return x) -- rather than (b,x) -- we aren't accumulating anything here...
-           (\u -> handleRelay u loop
-                  $ \(Writer w v) -> ((lift' $ hPutStr stdout w >> hFlush stdout) >> loop v)) -- <- should do the print before looping TODO
+           (return)
+           (\u -> handleRelay u loop write)
+    write (Writer w v) = do
+      lift' $ hPutStr stdout w
+      lift' $ hFlush stdout
+      loop v
 
 -- | sleeps for specified number of minutes
 
