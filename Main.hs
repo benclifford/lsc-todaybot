@@ -85,6 +85,11 @@ main = void $ runLift $ skipExceptionsTop $ handleWriter $ do
     skipExceptions $ mainLoop
     sleep 1
 
+-- BUG
+-- IOError is too tight a bound here - I want to get
+-- *all* exceptions. An example in practice is
+-- StatusCodeException not being caught here, a
+-- constructor of type HttpException.
 skipExceptionsTop :: Eff (Exc IOError :> (Lift IO :> Void)) a0
                     -> Eff (Lift IO :> Void) ()
 skipExceptionsTop act = do
