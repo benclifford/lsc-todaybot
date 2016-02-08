@@ -122,9 +122,8 @@ skipExceptions act =
 
 mainLoop = do
   withAuthentication $ do
-    bearerToken <- getBearerToken
-    posts <- getHotPosts bearerToken
-    mapM_ (skipExceptions . (processPost bearerToken)) posts -- this could be a traversible rather than a monad?
+    posts <- getHotPosts
+    mapM_ (skipExceptions . processPost) posts -- this could be a traversible rather than a monad?
   progress "Pass completed."
 
 lift' :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => IO a -> Eff r a
@@ -166,9 +165,10 @@ getBearerToken = ask
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
-getHotPosts :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => T.Text -> Eff r (V.Vector Value)
-getHotPosts bearerToken = do
+getHotPosts :: (Member (Reader BearerToken) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r (V.Vector Value)
+getHotPosts = do
   progress "Getting hot posts"
+  bearerToken <- getBearerToken
 
   let opts = defaults
            & authorizationHeader bearerToken
@@ -181,8 +181,8 @@ getHotPosts bearerToken = do
 _ByteString :: Getting BSS8.ByteString Value BSS8.ByteString
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
-processPost :: (Member (Writer String) r1, SetMember Lift (Lift IO) r1, Member (Exc IOError) r1) => T.Text -> Value -> Free (Union r1) ()
-processPost bearerToken post = do
+processPost :: (Member (Reader BearerToken) r1, Member (Writer String) r1, SetMember Lift (Lift IO) r1, Member (Exc IOError) r1) => Value -> Free (Union r1) ()
+processPost post = do
   let fullname = post ^. postFullname
   let flair_text = post ^. postFlairText
   let flair_css = post ^. postFlairCss
@@ -217,16 +217,16 @@ processPost bearerToken post = do
         -- nothing - then if someone unstickies, it will get archived flair
         -- in a future run.
         if | postDate > now -> progress $ "    Skipping: Post is in future"
-           | postDate == now -> forceFlair bearerToken post "Today" "today"
-           | postDate < now && not stickied -> forceFlair bearerToken post "Archived" "archived"
-           | postDate < now && stickied -> forceFlair bearerToken post "" ""
+           | postDate == now -> forceFlair post "Today" "today"
+           | postDate < now && not stickied -> forceFlair post "Archived" "archived"
+           | postDate < now && stickied -> forceFlair post "" ""
 
       Left e -> progress $ "    Skipping: Date did not parse: " <> (show e)
 
     let interestCheck = (T.toCaseFold "[Interest") `T.isPrefixOf` (T.toCaseFold title)
     progress $ "    Interest check? " <> (show interestCheck)
 
-    when interestCheck $ forceFlair bearerToken post "Interest Check" "interestcheck"
+    when interestCheck $ forceFlair post "Interest Check" "interestcheck"
 
 -- parser for subject line dates...
 -- expecting (from automod config)
@@ -298,8 +298,8 @@ postFullname f post = let
   const_r = getConst const_ra
   in Const const_r
 
-forceFlair :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => T.Text -> Value -> T.Text -> T.Text -> Eff r ()
-forceFlair bearerToken post forced_flair forced_flair_css = do
+forceFlair :: (Member (Reader BearerToken) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Value -> T.Text -> T.Text -> Eff r ()
+forceFlair post forced_flair forced_flair_css = do
   let fullname = post ^. postFullname
   progress' $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
   let flair_text = post ^. postFlairText
@@ -307,6 +307,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
   if flair_text == forced_flair && flair_css == forced_flair_css
     then progress "    No flair change necessary"
     else do progress "    Updating flair"
+            bearerToken <- getBearerToken
             let opts = defaults
                      & authorizationHeader bearerToken
                      & param "api_type" .~ ["json"]
