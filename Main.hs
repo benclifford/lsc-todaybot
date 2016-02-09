@@ -4,6 +4,8 @@
 
 {-# LANGUAGE GADTs #-} -- needed for extensible-effects lift IO to work?
 
+{- XLANGUAGE PartialTypeSignatures -} -- playing round with interposing
+
 -- all of these come from the top of extensible-effects lift module
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -43,6 +45,7 @@ import Data.Void
 import Data.Yaml (decodeFile)
 import System.IO (hPutStr, hFlush, stderr, stdout)
 import System.IO.Error (tryIOError)
+import System.IO.Unsafe (unsafePerformIO)
 import Network.Wreq (auth,
                      basicAuth,
                      defaults,
@@ -72,16 +75,24 @@ data Configuration = Configuration {
 
 type BearerToken = T.Text
 
+-- | helper to run the supplied
+-- action and print the return
+-- value
+p a = do
+ v <- a
+ print v
+
 -- this runExc will silently die if we get an
 -- IO exception that has been handed up here...
--- should probably catch and log it. TODO
-main = void $ runLift $ skipExceptionsTop $ handleWriter $ do
+-- should probably catch and log it.
+main = p $ runLift $ runExc $ handleWriter $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e)) $ do
   progress "todaybot"
 
   withConfiguration $ forever $ do
-    skipExceptions $ mainLoop
+    logExceptions $ mainLoop
     sleep 1
 
+{-
 -- BUG
 -- IOError is too tight a bound here - I want to get
 -- *all* exceptions. An example in practice is
@@ -96,6 +107,7 @@ skipExceptionsTop act = do
                                         -- can't use "progress" here
                                         -- because it wants to be able
                                         -- to throw exceptions
+-}
 
 -- | skipExceptions implements a deliberate "log, abandon this bit, and
 -- carry on" policy. Problems this has dealt with in the past:
@@ -107,12 +119,292 @@ skipExceptionsTop act = do
 -- I don't understand how IO exceptions work in this model, so leave
 -- it 'till later?
 
-skipExceptions :: (Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
-                    -> Eff r ()
-skipExceptions act =
-  catchExc act $ \(e :: IOError) -> progress $ "Skipping because of exception: " <> (show e)
+{-
+  -- catchExc (interposeIOExceptions act) handleException
+  interposeIOExceptions act
+    where 
+      -- act gets run in some interspersing mode where 'lift' turns into
+      -- an exception throwing version
+      interposeIOExceptions = loop
+      loop = freeMap
+             (return)  -- when we get a value, but we can never return values
+             (\effreq -> interpose effreq loop interposeLift) -- when we get an effect
 
--- mainLoop :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r ()
+      -- | handleException is what to do
+      -- handleException (e :: IOError) = progress $ "Skipping because of exception: " <> (show e)
+
+      -- | l is a Lift value
+      -- interposeLift :: (SetMember Lift (Lift IO) r) => Lift (IO) (a -> Eff r v) -> Eff r v
+      interposeLift (Lift ioa k) = do
+        intermediate <- (lift ioa)
+        lift $ putStrLn "IO EFFECT INTERSPERSED"
+        k intermediate
+-}
+{-
+handleWriter :: Eff (Writer String :> Lift IO :> r) a -> Eff (Lift IO :> r) a
+handleWriter = loop
+  where
+    loop = freeMap
+           (return)
+           (\u -> handleRelay u loop write)
+    write (Writer w v) = do
+      lift $ hPutStr stdout w
+      lift $ hFlush stdout
+      loop v
+-}
+
+
+{-
+
+-- | The handler of Reader requests. The return type shows that
+-- all Reader requests are fully handled.
+runReader :: Typeable e => Eff (Reader e :> r) w -> e -> Eff r w
+runReader m !e = loop m where
+  loop = freeMap
+         return
+         (\u -> handleRelay u loop (\(Reader k) -> loop (k e)))
+
+-}
+
+{- BLOG POST about this paragraph? for writing a "nop" interpose.
+The problem with this implementation is that the 'interpose'
+switches between two paths depending on the type of effect
+message; but there is not enough here to infer that.
+So it needs to be pinned somewhere.
+skipExceptions :: SetMember Lift (Lift IO) r => Eff r a -> Eff r a
+skipExceptions = loop
+  where
+    loop = freeMap
+           (return)
+           (\u -> interpose u loop nop)
+    nop u = (send $ inj u) >>= loop
+-}
+
+{- blog post 2 -}
+-- this implementation indicates when IO is called within
+-- the parameter block, but it does not intercept any IO
+-- that comes from the log Writer.
+-- but exceptions arising there are very much what I want
+-- to catch: exceptions from HTTP errors when they are
+-- going to be in their own effect.
+-- if I put an exception transformer lower in the stack can
+-- I make exceptions more visible? with the interceptor sitting
+-- right after runLift.
+
+-- also interesting in this implementation is that I can
+-- do send $ inj $ Lift but I can't use "lift" directly!
+{-
+skipExceptions :: SetMember Lift (Lift IO) r => Eff r a -> Eff r a
+skipExceptions = loop
+  where
+    loop = freeMap
+           (return)
+           (\u -> interpose u loop nop)
+    nop (u :: Lift IO _) = do
+      v <- send $ inj u
+      send $ inj $ Lift (putStrLn "INTERCEPT IO in skipExceptions") id
+      loop v
+
+-}
+
+{-
+-- BLOG 3: this took ages to figure out all the type
+-- anotations for. ugh.
+-- but it runs and annotates the outputs, and if put
+-- right after runLift, annotates Writer based logging
+-- too.
+skipExceptions :: SetMember Lift (Lift IO) r => Eff r a -> Eff r a
+skipExceptions act = do
+  let 
+    loop :: SetMember Lift (Lift IO) r => Eff r q -> Eff r q
+    loop = freeMap
+           (return)
+           (\u -> interpose u loop nop)
+    nop :: SetMember Lift (Lift IO) r => (Lift IO (Eff r q)) -> Eff r q
+    nop u = do
+      lift $ putStrLn "Pre-IO"
+      v <- send $ inj u
+      lift $ putStrLn "Post-IO"
+      loop v
+  loop act
+-}
+
+{- BLOG 4
+This one catches the IO, replaces the IO with something else
+(that wraps both the IO and the continuation of what we're
+going to do afterwards). The continuation of what we're
+going to do afterwards, we actually discard. So when we run,
+we get up to first IO, and get pre eff, pre wrap, IO, post wrap,
+post eff, and then we get the error aborting the computation
+(that comes from completely replacing the continuation with this error)
+
+skipExceptions :: SetMember Lift (Lift IO) r => Eff r a -> Eff r a
+skipExceptions act = do
+  loop act  where 
+
+    loop :: SetMember Lift (Lift IO) r => Eff r q -> Eff r q
+    loop = freeMap
+           (return)
+           (\u -> interpose u loop handleEff)
+    handleEff :: SetMember Lift (Lift IO) r => (Lift IO (Eff r q)) -> Eff r q
+    handleEff u@(Lift ioact k) = do -- what should I do with that continuation k?
+                              -- it will be used as part of the send when
+                              -- talking about u, so I suppose I'll just
+                              -- preserve it but no idea if that is right...
+      lift $ putStrLn "Pre-IO eff"
+
+      let ioact' = transformIOAction ioact
+      let k' = transformK k -- can modify k here... k :: a -> Eff r v. So if we're modifying the output type of ioact' I suppose we should modify the input type of k?
+      let u' = Lift ioact' k' -- we can fiddle with the IO action (and do) but we can also fiddle with (k :: a -> Eff r v) too
+      rest <- send $ inj u' -- rest is an eff, not the raw result of the IO action; rest represents, I think, the rest of the program to run, with the return value of the IO action appropriately inserted.
+      lift $ putStrLn "Post-IO eff"
+      loop rest
+
+    transformIOAction act = do
+      putStrLn "Pre-IO wrap"
+      v <- {- tryIOError -} act
+      putStrLn "Post-IO wrap"
+      return v
+
+    transformK :: (a -> Eff r v) -> a -> Eff r v
+    -- transformK k v = k v
+    transformK k v = fail "DISCARD AFTER ANY IO"  -- so discard the rest of the computation
+-}
+
+{- BLOG 5: demonstrating using return () to do delimited cutting out
+   continuation. note that we have to make all the return types () here
+(or rather, we need them to be of a type that we can pick some value
+for in the case of failure...)
+skipExceptions :: SetMember Lift (Lift IO) r => Eff r () -> Eff r ()
+skipExceptions act = do
+  loop act  where 
+
+    loop :: SetMember Lift (Lift IO) r => Eff r () -> Eff r ()
+    loop = freeMap
+           (return)
+           (\u -> interpose u loop handleEff)
+    handleEff :: SetMember Lift (Lift IO) r => (Lift IO (Eff r ())) -> Eff r ()
+    handleEff u@(Lift ioact k) = do -- what should I do with that continuation k?
+                              -- it will be used as part of the send when
+                              -- talking about u, so I suppose I'll just
+                              -- preserve it but no idea if that is right...
+      lift $ putStrLn "Pre-IO eff"
+
+      let ioact' = transformIOAction ioact
+      let k' = transformK k -- can modify k here... k :: a -> Eff r v. So if we're modifying the output type of ioact' I suppose we should modify the input type of k?
+      let u' = Lift ioact' k' -- we can fiddle with the IO action (and do) but we can also fiddle with (k :: a -> Eff r v) too
+      rest <- send $ inj u' -- rest is an eff, not the raw result of the IO action; rest represents, I think, the rest of the program to run, with the return value of the IO action appropriately inserted.
+      lift $ putStrLn "Post-IO eff"
+      loop rest
+
+    transformIOAction act = do
+      putStrLn "Pre-IO wrap"
+      v <- {- tryIOError -} act
+      putStrLn "Post-IO wrap"
+      return v
+
+    transformK :: (a -> Eff r ()) -> a -> Eff r ()
+    -- transformK k v = k v
+    transformK k v = return ()  -- discard rest of computation (delimited by skipExceptions) - because we cause loop to return a pure value and stop iterating.
+-}
+
+{- BLOG 6:
+now we can catch exceptions, and abort the subprogram wrapped by
+skipExceptions if we get one, firing out a putStrLn with the
+exception. (but not a Writer, so not using logging system...)
+
+we're still missing the ability to catch IO exceptions fired
+in the log writer (or any Effect -> IO converter), I think.
+
+how can I throw exceptions from a lower layer to be caught
+by a higher layer? I guess I need to pay attention to the
+execution model a bit more? maybe time to draw on paper
+
+skipExceptions :: SetMember Lift (Lift IO) r => Eff r () -> Eff r ()
+skipExceptions act = do
+  loop act  where 
+
+    loop :: SetMember Lift (Lift IO) r => Eff r () -> Eff r ()
+    loop = freeMap
+           (return)
+           (\u -> interpose u loop handleEff)
+    handleEff :: SetMember Lift (Lift IO) r => (Lift IO (Eff r ())) -> Eff r ()
+    handleEff u@(Lift ioact k) = do -- what should I do with that continuation k?
+                              -- it will be used as part of the send when
+                              -- talking about u, so I suppose I'll just
+                              -- preserve it but no idea if that is right...
+      lift $ putStrLn "Pre-IO eff"
+
+      let ioact' = transformIOAction ioact
+      let k' = transformK k -- can modify k here... k :: a -> Eff r v. So if we're modifying the output type of ioact' I suppose we should modify the input type of k?
+      let u' = Lift ioact' k' -- we can fiddle with the IO action (and do) but we can also fiddle with (k :: a -> Eff r v) too
+      rest <- send $ inj u' -- rest is an eff, not the raw result of the IO action; rest represents, I think, the rest of the program to run, with the return value of the IO action appropriately inserted.
+      lift $ putStrLn "Post-IO eff"
+      loop rest
+
+    transformIOAction act = do
+      putStrLn "Pre-IO wrap"
+      v <- tryIOError act
+      putStrLn "Post-IO wrap"
+      return v
+
+    transformK :: (SetMember Lift (Lift IO) r) => (a -> Eff r ()) -> Either IOError a -> Eff r ()
+    transformK k ev = case ev of
+      Right v -> k v -- IO returned a value, so run the rest of the subprogram, passing in that value
+      Left ex -> do
+        lift $ putStrLn $ "transformK handling an exception: " ++ show ex
+        return () -- discard the rest of the subprogram
+-}
+
+skipExceptions :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff r () -> Eff r ()
+skipExceptions act = do
+  loop act  where 
+
+    loop :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff r () -> Eff r ()
+    loop = freeMap
+           (return)
+           (\u -> interpose u loop handleEff)
+    handleEff :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => (Lift IO (Eff r ())) -> Eff r ()
+    handleEff u@(Lift ioact k) = do -- what should I do with that continuation k?
+                              -- it will be used as part of the send when
+                              -- talking about u, so I suppose I'll just
+                              -- preserve it but no idea if that is right...
+      -- can do (Eff)ectful pre (and post ***) actions here,
+      -- including the Lift IO effect.
+
+      let ioact' = transformIOAction ioact
+      let k' = transformK k -- can modify k here... k :: a -> Eff r v. So if we're modifying the output type of ioact' I suppose we should modify the input type of k?
+      let u' = Lift ioact' k' -- we can fiddle with the IO action (and do) but we can also fiddle with (k :: a -> Eff r v) too
+      rest <- send $ inj u' -- rest is an eff, not the raw result of the IO action; rest represents, I think, the rest of the program to run, with the return value of the IO action appropriately inserted.
+      -- *** see above
+      loop rest
+
+    transformIOAction act = do
+      -- Can do pre ...
+      v <- tryIOError act
+      -- ... and post activity using IO actions here.
+      return v
+
+    transformK :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => (a -> Eff r ()) -> Either IOError a -> Eff r ()
+    transformK k ev = case ev of
+      Right v -> k v -- IO returned a value, so run the rest of the subprogram, passing in that value
+      Left ex -> throwExc ex
+
+-- this doesn't end up catching *any* exceptions! skipExceptions, which
+-- translates IO errors into Exc exceptions, only passes exceptions to
+-- catches which are wrapping around 'skipExceptions' -- it doesn't
+-- throw exceptions to anything higher in the stack that wants to
+-- catch them, which is what I want to happen... I don't know if that
+-- is even possible with this interpose approach? Maybe I need to
+-- go back to the lift' approach? But that also won't get exceptions
+-- from eg the logger, which are generated low in the stack.
+-- so the logging and other actions have to generate the exception
+-- effect themselves, rather than it being generated way down in
+-- the stack by an effect interpreter?
+logExceptions act = do
+  (skipExceptions act) `catchExc` (\(e :: IOError) -> progress $ "Caught exception and skipping: " ++ show e)
+
+-- mainLoop :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r) => Eff r ()
 -- no signature here, so that a more concrete
 -- type signature is inferred. This seems to be
 -- necessary to make withAuthentication type check
@@ -144,15 +436,18 @@ skipExceptions act =
 mainLoop = do
   withAuthentication $ do
     posts <- getHotPosts
-    mapM_ (skipExceptions . processPost) posts -- this could be a traversible rather than a monad?
+    mapM_ (logExceptions . processPost) posts -- this could be a traversible rather than a monad?
+  logExceptions $ lift $ fail "BENC DELIBERATE FAIL, BUT PASS COMPLETED."
   progress "Pass completed."
 
-lift' :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => IO a -> Eff r a
+{-
+lift' :: (SetMember Lift (Lift IO) r) => IO a -> Eff r a
 lift' a = do
   r <- lift $ tryIOError a
   case r of
     (Right v) -> return v
     (Left ex) -> throwExc ex
+-}
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
@@ -163,7 +458,7 @@ authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.en
 -- what am I trying to express here? that the supplied action has 
 -- effects of bearer token reader, config reader, logger, and
 -- the IO effects.
-withAuthentication :: (Member (Reader Configuration) e, Member (Writer String) e, SetMember Lift (Lift IO) e, Member (Exc IOError) e
+withAuthentication :: (Member (Reader Configuration) e, Member (Writer String) e, SetMember Lift (Lift IO) e
                       ) => Eff ((Reader BearerToken) :> e) v -> Eff e v
 withAuthentication act = do
   progress "Authenticating"
@@ -176,7 +471,7 @@ withAuthentication act = do
            & param "password" .~ [password configuration]
            & auth ?~ basicAuth (app_id configuration) (app_secret configuration)
 
-  resp <- lift' $ postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
+  resp <- lift $ postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
 
   let bearerToken = resp ^. responseBody . key "access_token" . _String
   runReader act bearerToken
@@ -186,7 +481,7 @@ getBearerToken = ask
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
-getHotPosts :: (Member (Reader BearerToken) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r (V.Vector Value)
+getHotPosts :: (Member (Reader BearerToken) r, Member (Writer String) r, SetMember Lift (Lift IO) r) => Eff r (V.Vector Value)
 getHotPosts = do
   progress "Getting hot posts"
   bearerToken <- getBearerToken
@@ -194,7 +489,7 @@ getHotPosts = do
   let opts = defaults
            & authorizationHeader bearerToken
            & userAgentHeader
-  resp <- lift' $ getWith opts hotPostsUrl
+  resp <- lift $ getWith opts hotPostsUrl
   return $ resp ^. responseBody . key "data" . key "children" . _Array
 
 
@@ -202,7 +497,7 @@ getHotPosts = do
 _ByteString :: Getting BSS8.ByteString Value BSS8.ByteString
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
-processPost :: (Member (Reader BearerToken) r1, Member (Writer String) r1, SetMember Lift (Lift IO) r1, Member (Exc IOError) r1) => Value -> Free (Union r1) ()
+processPost :: (Member (Reader BearerToken) r1, Member (Writer String) r1, SetMember Lift (Lift IO) r1) => Value -> Free (Union r1) ()
 processPost post = do
   let fullname = post ^. postFullname
   let flair_text = post ^. postFlairText
@@ -291,10 +586,10 @@ normaliseYear year =
     _ | year > 2000 -> year
     _ | year >= 0 && year < 100 -> 2000 + year -- hello, 2100!
 
-getCurrentLocalTime :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r LocalTime
+getCurrentLocalTime :: (SetMember Lift (Lift IO) r) => Eff r LocalTime
 getCurrentLocalTime = do
-  nowUTC <- lift' $ getCurrentTime
-  tz <- lift' $ getCurrentTimeZone
+  nowUTC <- lift $ getCurrentTime
+  tz <- lift $ getCurrentTimeZone
   return $ utcToLocalTime tz nowUTC
 
 postFlairText :: Getting T.Text Value T.Text
@@ -319,7 +614,7 @@ postFullname f post = let
   const_r = getConst const_ra
   in Const const_r
 
-forceFlair :: (Member (Reader BearerToken) r, Member (Writer String) r, SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Value -> T.Text -> T.Text -> Eff r ()
+forceFlair :: (Member (Reader BearerToken) r, Member (Writer String) r, SetMember Lift (Lift IO) r) => Value -> T.Text -> T.Text -> Eff r ()
 forceFlair post forced_flair forced_flair_css = do
   let fullname = post ^. postFullname
   progress' $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
@@ -336,7 +631,7 @@ forceFlair post forced_flair forced_flair_css = do
                      & param "text" .~ [forced_flair]
                      & param "css_class" .~ [forced_flair_css]
 
-            lift' $ postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
+            lift $ postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
             -- TODO check if successful
             return ()
 
@@ -348,7 +643,7 @@ forceFlair post forced_flair forced_flair_css = do
 -- semantics or if the error thrown at print (by the effect handler)
 -- isn't caught by skipExceptions correctly. I think if the
 -- handler for writers sits further out in the effect stack than
--- IO and Exc IOError and uses lift', this should be ok, but unsure?
+-- IO and Exc IOError and uses lift, this should be ok, but unsure?
 
 -- c.f. Trace effect. but maybe i want log levels etc, which is why
 -- i'm keeping it a bit separate
@@ -377,14 +672,14 @@ handleWriter = loop
            (return)
            (\u -> handleRelay u loop write)
     write (Writer w v) = do
-      lift' $ hPutStr stdout w
-      lift' $ hFlush stdout
+      lift $ hPutStr stdout w
+      lift $ hFlush stdout
       loop v
 
 -- | sleeps for specified number of minutes
 
-sleep :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Int -> Eff r ()
-sleep mins = lift' $ threadDelay (mins * 60 * 1000000)
+sleep :: (SetMember Lift (Lift IO) r) => Int -> Eff r ()
+sleep mins = lift $ threadDelay (mins * 60 * 1000000)
 
 withConfiguration act = do
   c <- readConfiguration
@@ -393,9 +688,9 @@ withConfiguration act = do
 getConfiguration :: (Member (Reader Configuration) r) => Eff r Configuration
 getConfiguration = ask
 
-readConfiguration :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => Eff r Configuration
+readConfiguration :: (SetMember Lift (Lift IO) r) => Eff r Configuration
 readConfiguration = do
-  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> (lift' $ decodeFile "secrets.yaml")
+  configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> (lift $ decodeFile "secrets.yaml")
   return $ Configuration {
     username = configYaml ^. key "username" . _String,
     password = configYaml ^. key "password" . _String,
