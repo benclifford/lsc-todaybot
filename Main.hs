@@ -3,9 +3,6 @@
 {-# LANGUAGE MultiWayIf #-}
 
 {-# LANGUAGE GADTs #-} -- needed for extensible-effects lift IO to work?
-{-# LANGUAGE AllowAmbiguousTypes #-} -- needed for extensible-effects lift IO to work?
-
-{-# LANGUAGE BangPatterns #-} -- needed for runWriter strictness
 
 -- all of these come from the top of extensible-effects lift module
 {-# LANGUAGE TypeOperators #-}
