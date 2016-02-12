@@ -612,7 +612,6 @@ handleGetCurrentLocalTime = loop
     loop = freeMap
            (return)
            (\u -> handleRelay u loop readTime)
---    write :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => (Writer String (Eff (Writer String :> r) a)) -> Eff r a
 
     readTime :: (SetMember Lift (Lift IO) r) => Reader LocalTime (Eff (Reader LocalTime :> r) a) -> Eff r a
     readTime (Reader k) = do
