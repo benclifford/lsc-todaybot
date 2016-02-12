@@ -84,10 +84,16 @@ p a = do
  v <- a
  print v
 
--- this runExc will silently die if we get an
--- IO exception that has been handed up here...
--- should probably catch and log it.
-main = p $ runLift $ (runExc :: Eff (Exc IOError :> Lift IO :> Void) () -> Eff (Lift IO :> Void) (Either IOError ())) $ handleSleep $ handleWriter $ handleGetCurrentLocalTime $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e)) $ do
+
+runStack a = runLift
+           $ (runExc :: Eff (Exc IOError :> Lift IO :> Void) () -> Eff (Lift IO :> Void) (Either IOError ()))
+           $ handleSleep
+           $ handleWriter
+           $ handleGetCurrentLocalTime
+           $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e))
+           $ a
+
+main = p $ runStack $ do
   progress "todaybot"
 
   withConfiguration $ forever $ do
