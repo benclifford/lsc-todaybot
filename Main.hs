@@ -6,6 +6,8 @@
 
 {- XLANGUAGE PartialTypeSignatures -} -- playing round with interposing
 
+{-# LANGUAGE DeriveFunctor #-} -- for Sleep functor (and any other effect types we might derive)
+
 -- all of these come from the top of extensible-effects lift module
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -43,7 +45,7 @@ import Data.Aeson ( Value(..) )
 import Data.Aeson.Lens (key, _Bool, _String, _Array)
 import Data.Void
 import Data.Yaml (decodeFile)
-import System.IO (hPutStr, hFlush, stderr, stdout)
+import System.IO (hPutStr, hPutStrLn, hFlush, stderr, stdout)
 import System.IO.Error (tryIOError)
 import System.IO.Unsafe (unsafePerformIO)
 import Network.Wreq (auth,
@@ -85,7 +87,7 @@ p a = do
 -- this runExc will silently die if we get an
 -- IO exception that has been handed up here...
 -- should probably catch and log it.
-main = p $ runLift $ (runExc :: Eff (Exc IOError :> Lift IO :> Void) () -> Eff (Lift IO :> Void) (Either IOError ())) $ handleWriter $ handleGetCurrentLocalTime $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e)) $ do
+main = p $ runLift $ (runExc :: Eff (Exc IOError :> Lift IO :> Void) () -> Eff (Lift IO :> Void) (Either IOError ())) $ handleSleep $ handleWriter $ handleGetCurrentLocalTime $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e)) $ do
   progress "todaybot"
 
   withConfiguration $ forever $ do
@@ -709,8 +711,26 @@ handleWriter = loop
 
 -- | sleeps for specified number of minutes
 
-sleep :: (SetMember Lift (Lift IO) r) => Int -> Eff r ()
-sleep mins = lift $ threadDelay (mins * 60 * 1000000)
+data Sleep k = Sleep Int k
+  deriving Functor
+
+sleep :: (Member Sleep r) => Int -> Eff r ()
+sleep time = send $ inj $ Sleep time ()
+
+handleSleep :: SetMember Lift (Lift IO) r => Eff (Sleep :> r) a -> Eff r a
+handleSleep = loop
+  where
+    loop :: (SetMember Lift (Lift IO) r) => Eff (Sleep :> r) a -> Eff r a
+    loop = freeMap
+           (return)
+           (\u -> handleRelay u loop sleep)
+    sleep :: (SetMember Lift (Lift IO) r) => (Sleep (Eff (Sleep :> r) a)) -> Eff r a
+    sleep (Sleep mins k) = do
+      -- should probably handle exceptions from threadDelay somehow...
+      lift $ do hPutStrLn stdout "Sleeping"
+                hFlush stdout
+                threadDelay (mins * 60 * 1000000)
+      loop k
 
 -- | unlike handleWriter, this uses a pre-defined
 -- handler (which probably uses interpose?)
