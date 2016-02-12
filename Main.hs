@@ -85,7 +85,7 @@ p a = do
 -- this runExc will silently die if we get an
 -- IO exception that has been handed up here...
 -- should probably catch and log it.
-main = p $ runLift $ runExc $ handleWriter $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e)) $ do
+main = p $ runLift $ (runExc :: Eff (Exc IOError :> Lift IO :> Void) () -> Eff (Lift IO :> Void) (Either IOError ())) $ handleWriter $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e)) $ do
   progress "todaybot"
 
   withConfiguration $ forever $ do
@@ -665,12 +665,14 @@ progressP' s = progressP (toString s)
 progressP :: (Member (Writer String) r) => String -> Eff r ()
 progressP s = tell (toString s)
 
-handleWriter :: Eff (Writer String :> Exc IOError :> Lift IO :> r) a -> Eff (Exc IOError :> Lift IO :> r) a
+handleWriter :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff (Writer String :> r) a -> Eff r a
 handleWriter = loop
   where
+    loop :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff (Writer String :> r) a -> Eff r a
     loop = freeMap
            (return)
            (\u -> handleRelay u loop write)
+    write :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => (Writer String (Eff (Writer String :> r) a)) -> Eff r a
     write (Writer w v) = do
       lift $ hPutStr stdout w
       lift $ hFlush stdout
