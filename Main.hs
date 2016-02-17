@@ -700,7 +700,7 @@ progressP' :: (Member (Writer String) r, ToString s) => s -> Eff r ()
 progressP' s = progressP (toString s)
 
 progressP :: (Member (Writer String) r) => String -> Eff r ()
-progressP s = tell (toString s)
+progressP s = tell s
 
 handleWriter :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff (Writer String :> r) a -> Eff r a
 handleWriter = loop
