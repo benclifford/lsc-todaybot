@@ -364,20 +364,20 @@ skipExceptions act = do
         return () -- discard the rest of the subprogram
 -}
 
-skipExceptions :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff r () -> Eff r ()
-skipExceptions = freeMap
+convertIOExceptions :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff r () -> Eff r ()
+convertIOExceptions = freeMap
            (return)
-           (\u -> interpose u skipExceptions handleEff)
+           (\u -> interpose u convertIOExceptions handleEff)
 
   where
     handleEff :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => (Lift IO (Eff r ())) -> Eff r ()
     handleEff (Lift ioact k) = do
       rest <- send . inj $ Lift (transIO ioact) (transK k)
-      skipExceptions rest
+      convertIOExceptions rest
 
     transIO act = do
       -- Can do pre ...
-      v <- tryIOError act
+      v <- tryIOError act 
       -- ... and post activity using IO actions here.
       return v
 
@@ -398,7 +398,7 @@ skipExceptions = freeMap
 -- effect themselves, rather than it being generated way down in
 -- the stack by an effect interpreter?
 logExceptions act = do
-  (skipExceptions act) `catchExc` (\(e :: IOError) -> progress $ "Caught exception and skipping: " ++ show e)
+  (convertIOExceptions act) `catchExc` (\(e :: IOError) -> progress $ "Caught exception and skipping: " ++ show e)
 
 -- mainLoop :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r) => Eff r ()
 -- no signature here, so that a more concrete
