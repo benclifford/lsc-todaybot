@@ -740,6 +740,8 @@ handleSleep = loop
 
 -- | unlike handleWriter, this uses a pre-defined
 -- handler (which probably uses interpose?)
+withConfiguration :: SetMember Lift (Lift IO) r
+  => Eff (Reader Configuration :> r) v -> Eff r v
 withConfiguration act = do
   c <- readConfiguration
   runReader act c
