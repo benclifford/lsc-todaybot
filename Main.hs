@@ -723,19 +723,17 @@ sleep :: (Member Sleep r) => Int -> Eff r ()
 sleep time = send $ inj $ Sleep time ()
 
 handleSleep :: SetMember Lift (Lift IO) r => Eff (Sleep :> r) a -> Eff r a
-handleSleep = loop
+handleSleep = freeMap
+              (return)
+              (\u -> handleRelay u handleSleep sleep)
   where
-    loop :: (SetMember Lift (Lift IO) r) => Eff (Sleep :> r) a -> Eff r a
-    loop = freeMap
-           (return)
-           (\u -> handleRelay u loop sleep)
     sleep :: (SetMember Lift (Lift IO) r) => (Sleep (Eff (Sleep :> r) a)) -> Eff r a
     sleep (Sleep mins k) = do
       -- should probably handle exceptions from threadDelay somehow...
       lift $ do hPutStrLn stdout "Sleeping"
                 hFlush stdout
                 threadDelay (mins * 60 * 1000000)
-      loop k
+      handleSleep k
 
 -- | unlike handleWriter, this uses a pre-defined
 -- handler (which probably uses interpose?)
