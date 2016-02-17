@@ -703,17 +703,16 @@ progressP :: (Member (Writer String) r) => String -> Eff r ()
 progressP s = tell s
 
 handleWriter :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff (Writer String :> r) a -> Eff r a
-handleWriter = loop
-  where
-    loop :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff (Writer String :> r) a -> Eff r a
-    loop = freeMap
+handleWriter =
+           freeMap
            (return)
-           (\u -> handleRelay u loop write)
+           (\u -> handleRelay u handleWriter write)
+  where
     write :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => (Writer String (Eff (Writer String :> r) a)) -> Eff r a
     write (Writer w v) = do
       lift $ hPutStr stdout w
       lift $ hFlush stdout
-      loop v
+      handleWriter v
 
 -- | sleeps for specified number of minutes
 
