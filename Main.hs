@@ -602,20 +602,14 @@ getCurrentLocalTime = ask
 -}
 
 handleGetCurrentLocalTime :: (SetMember Lift (Lift IO) r) => Eff (Reader LocalTime :> r) a -> Eff r a
-handleGetCurrentLocalTime = loop
-  where
-    loop :: (SetMember Lift (Lift IO) r) => Eff (Reader LocalTime :> r) a -> Eff r a
-    loop = freeMap
+handleGetCurrentLocalTime = freeMap
            (return)
-           (\u -> handleRelay u loop readTime)
-
+           (\u -> handleRelay u handleGetCurrentLocalTime readTime)
+  where
     readTime :: (SetMember Lift (Lift IO) r) => Reader LocalTime (Eff (Reader LocalTime :> r) a) -> Eff r a
     readTime (Reader k) = do
-      v <- lift $ do
-        nowUTC <- getCurrentTime
-        tz <- getCurrentTimeZone
-        return $ utcToLocalTime tz nowUTC
-      loop (k v)
+      v <- lift $ utcToLocalTime <$> getCurrentTimeZone <*> getCurrentTime
+      handleGetCurrentLocalTime (k v)
 
 postFlairText :: Getting T.Text Value T.Text
 postFlairText = key "data" . key "link_flair_text" . _String
