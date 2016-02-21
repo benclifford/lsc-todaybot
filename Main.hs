@@ -353,11 +353,7 @@ handleGetCurrentLocalTime = handleRelay (return) readTime
   where
     readTime :: (Member IOEffect r) => Reader LocalTime v -> Arr r v a -> Eff r a
     readTime Reader k = do
-      v <- doIO $ do -- TODO make this applicative
-        nowUTC <- getCurrentTime
-        tz <- getCurrentTimeZone
-        return $ utcToLocalTime tz nowUTC
-      k v
+      k =<< doIO (utcToLocalTime <$> getCurrentTimeZone <*> getCurrentTime)
 
 postFlairText :: Getting T.Text Value T.Text
 postFlairText = key "data" . key "link_flair_text" . _String
