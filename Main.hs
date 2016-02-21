@@ -92,7 +92,6 @@ runStack a = runIO
            $ handleSleep
            $ handleWriter
            $ handleGetCurrentLocalTime
-           $ (flip catchError) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e))
            $ a
 
 main = p $ runStack $ do
