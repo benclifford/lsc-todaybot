@@ -4,8 +4,6 @@
 
 {-# LANGUAGE GADTs #-} -- needed for extensible-effects lift IO to work?
 
-{- XLANGUAGE PartialTypeSignatures -} -- playing round with interposing
-
 {-# LANGUAGE DeriveFunctor #-} -- for Sleep functor (and any other effect types we might derive)
 
 -- all of these come from the top of extensible-effects lift module
@@ -31,12 +29,6 @@ import Control.Applicative ( (<$>), (<|>), many )
 import Control.Concurrent (threadDelay)
 import Control.Monad.Freer -- TODO: tighten
 import Control.Monad.Freer.Internal -- TODO: tighten
-{-
-import Control.Eff.Exception (catchExc, runExc, throwExc, Exc (..) )
-import Control.Eff.Lift (lift, runLift, Lift (..) )
-import Control.Eff.Reader.Lazy (ask, runReader, Reader (..))
-import Control.Eff.Writer.Strict (runMonoidWriter, tell, Writer (..) )
--}
 import Control.Monad.Freer.Exception
 import Control.Monad.Freer.Reader
 import Control.Monad.Freer.Writer
