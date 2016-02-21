@@ -451,7 +451,7 @@ handleSleep = handleRelay return sleep
     sleep :: Member IOEffect r => Sleep v -> Arr r v a -> Eff r a
     sleep (Sleep mins) k = do
       -- should probably handle exceptions from threadDelay somehow...
-      doIO $ do hPutStrLn stdout "Sleeping"
+      doIO $ do hPutStrLn stdout $ "Sleeping for " ++ show mins ++ " minutes."
                 hFlush stdout
                 threadDelay (mins * 60 * 1000000)
       k ()
