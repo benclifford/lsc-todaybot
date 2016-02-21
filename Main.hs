@@ -190,7 +190,6 @@ mainLoop = do
   withAuthentication $ do
     posts <- getHotPosts
     mapM_ (logExceptions . processPost) posts -- this could be a traversible rather than a monad?
-  logExceptions $ doIO $ fail "BENC DELIBERATE FAIL, BUT PASS COMPLETED."
   progress "Pass completed."
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
