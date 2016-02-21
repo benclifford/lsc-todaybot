@@ -100,7 +100,7 @@ main = p $ runStack $ do
 
   withConfiguration $ forever $ do
     logExceptions $ mainLoop
-    sleep 1
+    sleep 13
 
 skipExceptions :: (Member (Exc IOError) r, Member IOEffect r) => Eff r () -> Eff r ()
 skipExceptions act = interpose return handleEff act
