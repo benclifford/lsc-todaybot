@@ -101,17 +101,6 @@ main = p $ runStack $ do
     logExceptions $ mainLoop
     sleep 13
 
-skipExceptions :: (Member (Exc IOError) r, Member IOEffect r) => Eff r () -> Eff r ()
-skipExceptions act = interpose return handleEff act
-  where
-    -- handleEff :: IOEffect v -> Arr r v a -> Eff r a
-    handleEff (IOEffect ioact) q = do
-      let ioact' = tryIOError ioact
-      v' <- send (IOEffect ioact')
-      case v' of
-        Right v -> q v
-        Left exc -> throwError exc
-
 {-
 
     -- handleEff :: (Member (Exc IOError) r, Member IOEffect r) => (Lift IO (Eff r ())) -> Eff r ()
@@ -142,9 +131,9 @@ skipExceptions act = interpose return handleEff act
 
 -}
 
--- this doesn't end up catching *any* exceptions! skipExceptions, which
+-- this doesn't end up catching *any* exceptions! convertIOExceptions, which
 -- translates IO errors into Exc exceptions, only passes exceptions to
--- catches which are wrapping around 'skipExceptions' -- it doesn't
+-- catches which are wrapping around 'convertIOExceptions' -- it doesn't
 -- throw exceptions to anything higher in the stack that wants to
 -- catch them, which is what I want to happen... I don't know if that
 -- is even possible with this interpose approach? Maybe I need to
@@ -154,7 +143,16 @@ skipExceptions act = interpose return handleEff act
 -- effect themselves, rather than it being generated way down in
 -- the stack by an effect interpreter?
 logExceptions act = do
-  (skipExceptions act) `catchError` (\(e :: IOError) -> progress $ "Caught exception and skipping: " ++ show e)
+  (convertIOExceptions act) `catchError` (\(e :: IOError) -> progress $ "Caught exception and skipping: " ++ show e)
+  where 
+    convertIOExceptions :: (Member (Exc IOError) r, Member IOEffect r) => Eff r () -> Eff r ()
+    convertIOExceptions act = interpose return handleEff act
+    handleEff (IOEffect ioact) q = do
+      let ioact' = tryIOError ioact
+      v' <- send (IOEffect ioact')
+      case v' of
+        Right v -> q v
+        Left exc -> throwError exc
 
 -- mainLoop :: (Member (Reader Configuration) r, Member (Writer String) r, SetMember Lift (Lift IO) r) => Eff r ()
 -- no signature here, so that a more concrete
@@ -403,7 +401,7 @@ forceFlair post forced_flair forced_flair_css = do
 -- How does that work with a writer effect handler?
 -- Needs some thinking/playing to see if (or not) it keeps those
 -- semantics or if the error thrown at print (by the effect handler)
--- isn't caught by skipExceptions correctly. I think if the
+-- isn't caught by convertIOExceptions correctly. I think if the
 -- handler for writers sits further out in the effect stack than
 -- IO and Exc IOError and uses lift, this should be ok, but unsure?
 
