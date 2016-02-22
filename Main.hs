@@ -481,6 +481,9 @@ data Http v where
   PostWith :: Postable a => Options -> String -> a -> Http (Response BSL.ByteString) 
   GetWith :: Options -> String -> Http (Response BSL.ByteString) 
 
+-- doesn't deal with exceptions, though... need to be able to
+-- send exceptions back up. consider all of these IO-exception
+-- throwing effects, using some 'sendExc' implementation?
 handleHttp :: Member IOEffect r => Eff (Http ': r) a -> Eff r a
 handleHttp = handleRelay return http
   where
