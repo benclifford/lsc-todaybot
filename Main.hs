@@ -172,7 +172,7 @@ authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.en
 -- what am I trying to express here? that the supplied action has 
 -- effects of bearer token reader, config reader, logger, and
 -- the IO effects.
-withAuthentication :: (Member (Reader Configuration) e, Member (Writer String) e, Member IOEffect e, Member Http e
+withAuthentication :: (Member (Reader Configuration) e, Member (Writer String) e, Member Http e
                       ) => Eff ((Reader BearerToken) ': e) v -> Eff e v
 withAuthentication act = do
   progress "Authenticating"
@@ -195,7 +195,7 @@ getBearerToken = ask
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
-getHotPosts :: (Member (Reader BearerToken) r, Member (Writer String) r, Member IOEffect r, Member Http r) => Eff r (V.Vector Value)
+getHotPosts :: (Member (Reader BearerToken) r, Member (Writer String) r, Member Http r) => Eff r (V.Vector Value)
 getHotPosts = do
   progress "Getting hot posts"
   bearerToken <- getBearerToken
@@ -211,7 +211,7 @@ getHotPosts = do
 _ByteString :: Getting BSS8.ByteString Value BSS8.ByteString
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
-processPost :: (Member (Reader LocalTime) r, Member (Reader BearerToken) r, Member (Writer String) r, Member Http r, Member IOEffect r) => Value -> Eff r ()
+processPost :: (Member (Reader LocalTime) r, Member (Reader BearerToken) r, Member (Writer String) r, Member Http r) => Value -> Eff r ()
 processPost post = do
   let fullname = post ^. postFullname
   let flair_text = post ^. postFlairText
@@ -348,7 +348,7 @@ postFullname f post = let
   const_r = getConst const_ra
   in Const const_r
 
-forceFlair :: (Member (Reader BearerToken) r, Member (Writer String) r, Member IOEffect r, Member Http r) => Value -> T.Text -> T.Text -> Eff r ()
+forceFlair :: (Member (Reader BearerToken) r, Member (Writer String) r, Member Http r) => Value -> T.Text -> T.Text -> Eff r ()
 forceFlair post forced_flair forced_flair_css = do
   let fullname = post ^. postFullname
   progress' $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
