@@ -159,9 +159,10 @@ logExceptions act = do
 mainLoop = do
   withAuthentication $ do
     posts <- getHotPosts
-    _ :: [()] <- makeChoiceA $ do
-      let tasks = (logExceptions . processPost) <$> posts
-      foldr mplus mzero tasks
+    let tasks = (logExceptions . processPost) <$> posts
+    -- type signature needed to pin the specific
+    -- Alternative Functor ([]) that should be used here.
+    _ :: [()] <- makeChoiceA $ foldr mplus mzero tasks
     return ()
 
   progress "Pass completed."
