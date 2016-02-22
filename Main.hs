@@ -160,7 +160,11 @@ logExceptions act = do
 mainLoop = do
   withAuthentication $ do
     posts <- getHotPosts
-    mapM_ (logExceptions . processPost) posts -- this could be a traversible rather than a monad?
+    _ :: [()] <- makeChoiceA $ do
+      let tasks = (logExceptions . processPost) <$> posts
+      foldr mplus mzero tasks
+    return ()
+
   progress "Pass completed."
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
