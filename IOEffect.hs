@@ -25,11 +25,10 @@ lameRunIO = error "NOTIMPL"
 runIO :: Eff ('[IOEffect]) w -> IO w
 runIO = loop
   where
-    loop (Val x) = putStrLn "runIO: Encountered a pure value." >> return x
+    loop (Val x) = return x
     loop (E u' q) = case decomp u' of
       Left _ -> error "impossible: decomposed to non-IOEffect"
       Right (IOEffect act) -> do
-        putStrLn "runIO: IO effect"
         v <- act
         -- we have a continuation queue, q, which is an arrow from a->b
         -- where v :: a
@@ -43,9 +42,7 @@ runIO = loop
         -- and then loop in IO?
         -- we can apply v to q
         let k = q `qApp` v
-        r <- loop k
-        putStrLn "runIO: end of this interpreter loop" -- this kills tail call elimination, presumably...
-        return r
+        loop k
 
 doIO :: Member IOEffect r => IO a -> Eff r a
 doIO act = send (IOEffect act)
