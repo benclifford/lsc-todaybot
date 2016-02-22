@@ -105,36 +105,6 @@ main = p $ runStack $ do
     logExceptions $ mainLoop
     sleep 13
 
-{-
-
-    -- handleEff :: (Member (Exc IOError) r, Member IOEffect r) => (Lift IO (Eff r ())) -> Eff r ()
-    handleEff u@(Lift ioact k) = do -- what should I do with that continuation k?
-                              -- it will be used as part of the send when
-                              -- talking about u, so I suppose I'll just
-                              -- preserve it but no idea if that is right...
-      -- can do (Eff)ectful pre (and post ***) actions here,
-      -- including the Lift IO effect.
-
-      let ioact' = transformIOAction ioact
-      let k' = transformK k -- can modify k here... k :: a -> Eff r v. So if we're modifying the output type of ioact' I suppose we should modify the input type of k?
-      let u' = Lift ioact' k' -- we can fiddle with the IO action (and do) but we can also fiddle with (k :: a -> Eff r v) too
-      rest <- send $ inj u' -- rest is an eff, not the raw result of the IO action; rest represents, I think, the rest of the program to run, with the return value of the IO action appropriately inserted.
-      -- *** see above
-      loop rest
-
-    transformIOAction act = do
-      -- Can do pre ...
-      v <- tryIOError act
-      -- ... and post activity using IO actions here.
-      return v
-
-    transformK :: (Member IOEffect r, Member (Exc IOError) r) => (a -> Eff r ()) -> Either IOError a -> Eff r ()
-    transformK k ev = case ev of
-      Right v -> k v -- IO returned a value, so run the rest of the subprogram, passing in that value
-      Left ex -> throwExc ex
-
--}
-
 -- this doesn't end up catching *any* exceptions! convertIOExceptions, which
 -- translates IO errors into Exc exceptions, only passes exceptions to
 -- catches which are wrapping around 'convertIOExceptions' -- it doesn't
