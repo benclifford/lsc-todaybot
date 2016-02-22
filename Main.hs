@@ -122,8 +122,7 @@ logExceptions act = do
     convertIOExceptions :: (Member (Exc IOError) r, Member IOEffect r) => Eff r () -> Eff r ()
     convertIOExceptions act = interpose return handleEff act
     handleEff (IOEffect ioact) q = do
-      let ioact' = tryIOError ioact
-      v' <- send (IOEffect ioact')
+      v' <- doIO (tryIOError ioact)
       case v' of
         Right v -> q v
         Left exc -> throwError exc
