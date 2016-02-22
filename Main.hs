@@ -162,10 +162,14 @@ mainLoop = do
     let tasks = (logExceptions . processPost) <$> posts
     -- type signature needed to pin the specific
     -- Alternative Functor ([]) that should be used here.
-    _ :: [()] <- makeChoiceA $ foldr (<|>) empty tasks
+    -- it feels kind-of traversal like, but is using
+    -- <|> to fold...
+    _ :: [()] <- makeChoiceA $ foldAlternative tasks
     return ()
 
   progress "Pass completed."
+
+foldAlternative = foldr (<|>) empty
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
