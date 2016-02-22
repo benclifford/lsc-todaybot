@@ -25,7 +25,7 @@
 -- as a tutorial
 
 import Prelude hiding (mapM_)
-import Control.Applicative ( (<$>), (<|>), many )
+import Control.Applicative ( (<$>), (<|>), empty, many )
 import Control.Concurrent (threadDelay)
 import Control.Monad.Freer -- TODO: tighten
 import Control.Monad.Freer.Internal -- TODO: tighten
@@ -162,7 +162,7 @@ mainLoop = do
     let tasks = (logExceptions . processPost) <$> posts
     -- type signature needed to pin the specific
     -- Alternative Functor ([]) that should be used here.
-    _ :: [()] <- makeChoiceA $ foldr mplus mzero tasks
+    _ :: [()] <- makeChoiceA $ foldr (<|>) empty tasks
     return ()
 
   progress "Pass completed."
