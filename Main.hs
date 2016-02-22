@@ -58,7 +58,10 @@ import Network.Wreq (auth,
                      param,
                      postWith,
                      responseBody,
-                     Part (..) )
+                     Options (..),
+                     Part (..),
+                     Response (..) )
+import Network.Wreq.Types (Postable (..))
 import Data.Monoid ( (<>) )
 import qualified Control.Lens.Getter as Getter
 import qualified Text.Parsec as P
@@ -92,6 +95,7 @@ runStack a = runIO
            $ handleSleep
            $ handleWriter
            $ handleGetCurrentLocalTime
+           $ handleHttp
            $ a
 
 main = p $ runStack $ do
@@ -198,7 +202,7 @@ authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.en
 -- what am I trying to express here? that the supplied action has 
 -- effects of bearer token reader, config reader, logger, and
 -- the IO effects.
-withAuthentication :: (Member (Reader Configuration) e, Member (Writer String) e, Member IOEffect e
+withAuthentication :: (Member (Reader Configuration) e, Member (Writer String) e, Member IOEffect e, Member Http e
                       ) => Eff ((Reader BearerToken) ': e) v -> Eff e v
 withAuthentication act = do
   progress "Authenticating"
@@ -211,7 +215,7 @@ withAuthentication act = do
            & param "password" .~ [password configuration]
            & auth ?~ basicAuth (app_id configuration) (app_secret configuration)
 
-  resp <- doIO $ postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
+  resp <- send $ PostWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
 
   let bearerToken = resp ^. responseBody . key "access_token" . _String
   runReader act bearerToken
@@ -221,7 +225,7 @@ getBearerToken = ask
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
-getHotPosts :: (Member (Reader BearerToken) r, Member (Writer String) r, Member IOEffect r) => Eff r (V.Vector Value)
+getHotPosts :: (Member (Reader BearerToken) r, Member (Writer String) r, Member IOEffect r, Member Http r) => Eff r (V.Vector Value)
 getHotPosts = do
   progress "Getting hot posts"
   bearerToken <- getBearerToken
@@ -229,7 +233,7 @@ getHotPosts = do
   let opts = defaults
            & authorizationHeader bearerToken
            & userAgentHeader
-  resp <- doIO $ getWith opts hotPostsUrl
+  resp <- send $ GetWith opts hotPostsUrl
   return $ resp ^. responseBody . key "data" . key "children" . _Array
 
 
@@ -237,7 +241,7 @@ getHotPosts = do
 _ByteString :: Getting BSS8.ByteString Value BSS8.ByteString
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
-processPost :: (Member (Reader LocalTime) r, Member (Reader BearerToken) r, Member (Writer String) r, Member IOEffect r) => Value -> Eff r ()
+processPost :: (Member (Reader LocalTime) r, Member (Reader BearerToken) r, Member (Writer String) r, Member Http r, Member IOEffect r) => Value -> Eff r ()
 processPost post = do
   let fullname = post ^. postFullname
   let flair_text = post ^. postFlairText
@@ -374,7 +378,7 @@ postFullname f post = let
   const_r = getConst const_ra
   in Const const_r
 
-forceFlair :: (Member (Reader BearerToken) r, Member (Writer String) r, Member IOEffect r) => Value -> T.Text -> T.Text -> Eff r ()
+forceFlair :: (Member (Reader BearerToken) r, Member (Writer String) r, Member IOEffect r, Member Http r) => Value -> T.Text -> T.Text -> Eff r ()
 forceFlair post forced_flair forced_flair_css = do
   let fullname = post ^. postFullname
   progress' $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
@@ -391,7 +395,7 @@ forceFlair post forced_flair forced_flair_css = do
                      & param "text" .~ [forced_flair]
                      & param "css_class" .~ [forced_flair_css]
 
-            doIO $ postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
+            send $ PostWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
             -- TODO check if successful
             return ()
 
@@ -472,6 +476,17 @@ readConfiguration = do
     app_secret = configYaml ^. key "app_secret" . _ByteString
   }
 
+
+data Http v where
+  PostWith :: Postable a => Options -> String -> a -> Http (Response BSL.ByteString) 
+  GetWith :: Options -> String -> Http (Response BSL.ByteString) 
+
+handleHttp :: Member IOEffect r => Eff (Http ': r) a -> Eff r a
+handleHttp = handleRelay return http
+  where
+        http :: Member IOEffect r => Http v -> Arr r v a -> Eff r a
+        http (PostWith o s a) k = k =<< (doIO $ postWith o s a)
+        http (GetWith o s) k = k =<< ( doIO $ getWith o s)
 
 -- blog: lots of "the impossible happened" ghc bugs with 7.10.3 related to skolem/escaping
 -- biggest takeaway -- type signatures. type sigs more required, unfamiliar form, type errors are nuts
