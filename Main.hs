@@ -93,7 +93,7 @@ p a = do
 runStack a = runIO
            $ (runError :: Eff '[Exc IOError,IOEffect] () -> Eff '[IOEffect] (Either IOError ()))
            $ handleSleep
-           $ handleWriter
+           $ handleLog
            $ handleGetCurrentLocalTime
            $ handleHttp
            $ a
@@ -320,7 +320,7 @@ getCurrentLocalTime = ask
    have another -- for example, if we were in a post context, there might
    be the post created local time... so in that case we'd have to do
    something more fancy -}
-{- contrast this impl with handleWriter - similar implementation. can't
+{- contrast this impl with handleLog - similar implementation. can't
    use one of the standard reader effects - because want to implement
    this in terms of other effects -}
 {- specifically we want to run the code to get the value *every time*
@@ -407,8 +407,8 @@ progressP' s = progressP (toString s)
 progressP :: (Member (Writer String) r) => String -> Eff r ()
 progressP s = tell (toString s)
 
-handleWriter :: (Member (Exc IOError) r, Member IOEffect r) => Eff (Writer String ': r) a -> Eff r a
-handleWriter = handleRelay return write
+handleLog :: (Member (Exc IOError) r, Member IOEffect r) => Eff (Writer String ': r) a -> Eff r a
+handleLog = handleRelay return write
   where
     write :: (Member (Exc IOError) r, Member IOEffect r) => (Writer String v) -> Arr r v a -> Eff r a
     write (Writer w) k = do
@@ -435,7 +435,7 @@ handleSleep = handleRelay return sleep
                 threadDelay (mins * 60 * 1000000)
       k ()
 
--- | unlike handleWriter, this uses a pre-defined
+-- | unlike handleLog, this uses a pre-defined
 -- handler (which probably uses interpose?)
 withConfiguration act = do
   c <- readConfiguration
