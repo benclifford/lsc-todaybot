@@ -90,7 +90,6 @@ runStack a = runLift
            $ handleSleep
            $ handleWriter
            $ handleGetCurrentLocalTime
-           $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e))
            $ a
 
 main = p $ runStack $ todaybot 
