@@ -367,14 +367,8 @@ convertIOExceptions = freeMap
   where
     handleEff :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => (Lift IO (Eff r ())) -> Eff r ()
     handleEff (Lift ioact k) = do
-      rest <- send . inj $ Lift (transIO ioact) (transK k)
+      rest <- send . inj $ Lift (tryIOError ioact) (transK k)
       convertIOExceptions rest
-
-    transIO act = do
-      -- Can do pre ...
-      v <- tryIOError act 
-      -- ... and post activity using IO actions here.
-      return v
 
     transK :: (SetMember Lift (Lift IO) r, Member (Exc IOError) r) => (a -> Eff r ()) -> Either IOError a -> Eff r ()
     transK k ev = case ev of
