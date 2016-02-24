@@ -77,14 +77,6 @@ data Configuration = Configuration {
 
 type BearerToken = T.Text
 
--- | helper to run the supplied
--- action and print the return
--- value
-p a = do
- v <- a
- print v
-
-
 runStack a = runLift
            $ (runExc :: Eff (Exc IOError :> Lift IO :> Void) () -> Eff (Lift IO :> Void) (Either IOError ()))
            $ handleSleep
@@ -92,7 +84,9 @@ runStack a = runLift
            $ handleGetCurrentLocalTime
            $ a
 
-main = p $ runStack $ todaybot 
+-- print to get the final result, which is likely
+-- to be an exception, as we shouldn't be exiting otherwise
+main = (runStack todaybot) >>= print
 
 todaybot = do
   progress "todaybot"
