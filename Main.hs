@@ -429,7 +429,9 @@ mainLoop = do
     posts <- getHotPosts
     mapM_ (logExceptions . processPost) posts -- this could be a traversible rather than a monad?
   logExceptions $ lift $ fail "BENC DELIBERATE FAIL, BUT PASS COMPLETED."
-  progress "Pass completed."
+  progress "Pass completed(1)."
+  lift $ fail "BENC DELIBERATE FAIL(2)"
+  progress "Pass completed(2)."
 
 {-
 lift' :: (SetMember Lift (Lift IO) r) => IO a -> Eff r a
