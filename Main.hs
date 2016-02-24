@@ -80,7 +80,7 @@ type BearerToken = T.Text
 runStack a = runLift
            $ (runExc :: Eff (Exc IOError :> Lift IO :> Void) () -> Eff (Lift IO :> Void) (Either IOError ()))
            $ handleSleep
-           $ handleWriter
+           $ handleLog
            $ handleGetCurrentLocalTime
            $ a
 
@@ -144,8 +144,8 @@ skipExceptionsTop act = do
         k intermediate
 -}
 {-
-handleWriter :: Eff (Writer String :> Lift IO :> r) a -> Eff (Lift IO :> r) a
-handleWriter = loop
+handleLog :: Eff (Writer String :> Lift IO :> r) a -> Eff (Lift IO :> r) a
+handleLog = loop
   where
     loop = freeMap
            (return)
@@ -589,7 +589,7 @@ getCurrentLocalTime = ask
    have another -- for example, if we were in a post context, there might
    be the post created local time... so in that case we'd have to do
    something more fancy -}
-{- contrast this impl with handleWriter - similar implementation. can't
+{- contrast this impl with handleLog - similar implementation. can't
    use one of the standard reader effects - because want to implement
    this in terms of other effects -}
 {- specifically we want to run the code to get the value *every time*
@@ -679,17 +679,17 @@ progressP' s = progressP (toString s)
 progressP :: (Member (Writer String) r) => String -> Eff r ()
 progressP s = tell s
 
-handleWriter :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff (Writer String :> r) a -> Eff r a
-handleWriter =
+handleLog :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => Eff (Writer String :> r) a -> Eff r a
+handleLog =
            freeMap
            (return)
-           (\u -> handleRelay u handleWriter write)
+           (\u -> handleRelay u handleLog write)
   where
     write :: (Member (Exc IOError) r, SetMember Lift (Lift IO) r) => (Writer String (Eff (Writer String :> r) a)) -> Eff r a
     write (Writer w v) = do
       lift $ hPutStr stdout w
       lift $ hFlush stdout
-      handleWriter v
+      handleLog v
 
 -- | sleeps for specified number of minutes
 
@@ -712,7 +712,7 @@ handleSleep = freeMap
                 threadDelay (mins * 60 * 1000000)
       handleSleep k
 
--- | unlike handleWriter, this uses a pre-defined
+-- | unlike handleLog, this uses a pre-defined
 -- handler (which probably uses interpose?)
 withConfiguration :: SetMember Lift (Lift IO) r
   => Eff (Reader Configuration :> r) v -> Eff r v
