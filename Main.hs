@@ -93,7 +93,9 @@ runStack a = runLift
            $ (flip catchExc) (progress . (\e -> "TOP LEVEL EXCEPTION HANDLER: " ++ (show :: IOError -> String) e))
            $ a
 
-main = p $ runStack $ do
+main = p $ runStack $ todaybot 
+
+todaybot = do
   progress "todaybot"
 
   withConfiguration $ forever $ do
