@@ -125,17 +125,6 @@ getHotPosts bearerToken = do
   let (Right rightRes) = res
   return $ rightRes ^. key "data" . key "children" . _Array
 
-getHotPostsOld :: BearerToken -> IO (V.Vector Value)
-getHotPostsOld bearerToken = do
-  progress "Getting hot posts"
-
-  let opts = defaults
-           & authorizationHeader bearerToken
-           & userAgentHeader
-  resp <- getWith opts hotPostsUrl
-  return $ resp ^. (Wreq.responseBody) . key "data" . key "children" . _Array
-
-
 readConfiguration = do
   configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> decodeFile "secrets.yaml"
   return $ Configuration {
