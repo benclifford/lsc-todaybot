@@ -242,6 +242,9 @@ postFlairText = key "data" . key "link_flair_text" . _String
 postFlairCss = key "data" . key "link_flair_css_class" . _String
 postTitle = key "data" . key "title" . _String
 
+type SetFlairAPI = Header "User-Agent" T.Text :> Header "Authorization" BearerToken :> "r" :> Capture "subreddit" T.Text :> "api" :> "flair" :> QueryParam "api_type" T.Text :> QueryParam "link" T.Text :> QueryParam "text" T.Text :> QueryParam "css_class" T.Text :> Post '[JSON] Value
+setFlair = client (Proxy.Proxy :: Proxy.Proxy SetFlairAPI)
+
 forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. postKind
   let i = post ^. postId
@@ -252,15 +255,9 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
   if flair_text == forced_flair && flair_css == forced_flair_css
     then progress "    No flair change necessary"
     else do progress "    Updating flair"
-            let opts = defaults
-                     & authorizationHeader bearerToken
-                     & param "api_type" .~ ["json"]
-                     & param "link" .~ [fullname]
-                     & param "text" .~ [forced_flair]
-                     & param "css_class" .~ [forced_flair_css]
-
-            postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
-            -- TODO check if successful
+            manager <- newManager tlsManagerSettings
+            res <- runExceptT (setFlair (Just userAgent) (Just $ "bearer " <> bearerToken) "LondonSocialClub" (Just "json") (Just fullname) (Just forced_flair) (Just forced_flair_css) manager redditOAuthBaseUrl)
+            print res
             return ()
 
 
