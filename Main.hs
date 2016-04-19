@@ -80,7 +80,7 @@ mainLoop configuration = do
 
 skipExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
 
-userAgent = "lsc-todaybot by u/benclifford"
+userAgent = "lsc-todaybot/servant by u/benclifford"
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
 
@@ -89,16 +89,14 @@ authenticate configuration = do
   progress "Authenticating using servant"
   manager <- newManager tlsManagerSettings
   let authdata = BasicAuthData (app_id configuration) (app_secret configuration)
-  (Right res) <- runExceptT (authcall authdata (Just userAgent) (Just "password") (Just $ username configuration) (Just $ password configuration) manager (BaseUrl Https "www.reddit.com" 443 "")) 
+  (Right res) <- runExceptT (authoriseBearerToken authdata (Just userAgent) (Just "password") (Just $ username configuration) (Just $ password configuration) manager (BaseUrl Https "www.reddit.com" 443 "")) 
   print res
   let token = res ^. key "access_token" . _String
   print token
   return token
 
 type AuthenticationAPI = BasicAuth "reddit" T.Text :> Header "User-Agent" T.Text :> "api" :> "v1" :> "access_token" :> QueryParam "grant_type" T.Text :> QueryParam "username" T.Text :> QueryParam "password" T.Text :> Post '[JSON] Value
-api :: Proxy.Proxy AuthenticationAPI
-api = Proxy.Proxy
-authcall = client api
+authoriseBearerToken = client (Proxy.Proxy :: Proxy.Proxy AuthenticationAPI)
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
