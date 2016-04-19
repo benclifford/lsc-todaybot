@@ -4,6 +4,7 @@
 
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 -- todaybot
 -- ben clifford benc@hawaga.org.uk
@@ -98,9 +99,21 @@ authenticate configuration = do
 type AuthenticationAPI = BasicAuth "reddit" T.Text :> Header "User-Agent" T.Text :> "api" :> "v1" :> "access_token" :> QueryParam "grant_type" T.Text :> QueryParam "username" T.Text :> QueryParam "password" T.Text :> Post '[JSON] Value
 authoriseBearerToken = client (Proxy.Proxy :: Proxy.Proxy AuthenticationAPI)
 
-
 type HotPostsAPI = Header "User-Agent" T.Text :> Header "Authorization" BearerToken :> "r" :> Capture "subreddit" T.Text :> "hot" :> QueryParam "limit" Integer :> Get '[JSON] Value
-hotposts = client (Proxy.Proxy :: Proxy.Proxy HotPostsAPI)
+-- hotposts = client (Proxy.Proxy :: Proxy.Proxy HotPostsAPI)
+
+type SetFlairAPI = Header "User-Agent" T.Text :> Header "Authorization" BearerToken :> "r" :> Capture "subreddit" T.Text :> "api" :> "flair" :> QueryParam "api_type" T.Text :> QueryParam "link" T.Text :> QueryParam "text" T.Text :> QueryParam "css_class" T.Text :> Post '[JSON] Value
+-- setFlair = client (Proxy.Proxy :: Proxy.Proxy SetFlairAPI)
+
+
+type HotPostsAPI2 = Header "Authorization" BearerToken :> "r" :> Capture "subreddit" T.Text :> "hot" :> QueryParam "limit" Integer :> Get '[JSON] Value
+
+type SetFlairAPI2 = Header "Authorization" BearerToken :> "r" :> Capture "subreddit" T.Text :> "api" :> "flair" :> QueryParam "api_type" T.Text :> QueryParam "link" T.Text :> QueryParam "text" T.Text :> QueryParam "css_class" T.Text :> Post '[JSON] Value
+type OAuthAPI = Header "User-Agent" T.Text :> (HotPostsAPI2 :<|> SetFlairAPI2)
+oauthAPI :: _
+oauthAPI = client (Proxy.Proxy :: Proxy.Proxy OAuthAPI)
+
+hotposts :<|> setFlair = oauthAPI (Just userAgent)
 
 -- Note: the BearerToken parameter needs "bearer " sticking on the
 -- front. I'd rather this be a BearerTokenHeader that does this
@@ -120,7 +133,7 @@ redditOAuthBaseUrl = BaseUrl Https "oauth.reddit.com" 443 ""
 getHotPosts :: BearerToken -> IO (V.Vector Value)
 getHotPosts bearerToken = do
   manager <- newManager tlsManagerSettings
-  res <- runExceptT (hotposts (Just userAgent) (Just $ "bearer " <> bearerToken) "londonsocialclub" (Just 100) manager redditOAuthBaseUrl)
+  res <- runExceptT (hotposts (Just $ "bearer " <> bearerToken) "londonsocialclub" (Just 100) manager redditOAuthBaseUrl)
 
   let (Right rightRes) = res
   return $ rightRes ^. key "data" . key "children" . _Array
@@ -242,8 +255,6 @@ postFlairText = key "data" . key "link_flair_text" . _String
 postFlairCss = key "data" . key "link_flair_css_class" . _String
 postTitle = key "data" . key "title" . _String
 
-type SetFlairAPI = Header "User-Agent" T.Text :> Header "Authorization" BearerToken :> "r" :> Capture "subreddit" T.Text :> "api" :> "flair" :> QueryParam "api_type" T.Text :> QueryParam "link" T.Text :> QueryParam "text" T.Text :> QueryParam "css_class" T.Text :> Post '[JSON] Value
-setFlair = client (Proxy.Proxy :: Proxy.Proxy SetFlairAPI)
 
 forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. postKind
@@ -256,7 +267,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
     then progress "    No flair change necessary"
     else do progress "    Updating flair"
             manager <- newManager tlsManagerSettings
-            res <- runExceptT (setFlair (Just userAgent) (Just $ "bearer " <> bearerToken) "LondonSocialClub" (Just "json") (Just fullname) (Just forced_flair) (Just forced_flair_css) manager redditOAuthBaseUrl)
+            res <- runExceptT (setFlair (Just $ "bearer " <> bearerToken) "LondonSocialClub" (Just "json") (Just fullname) (Just forced_flair) (Just forced_flair_css) manager redditOAuthBaseUrl)
             print res
             return ()
 
