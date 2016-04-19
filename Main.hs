@@ -98,10 +98,35 @@ authenticate configuration = do
 type AuthenticationAPI = BasicAuth "reddit" T.Text :> Header "User-Agent" T.Text :> "api" :> "v1" :> "access_token" :> QueryParam "grant_type" T.Text :> QueryParam "username" T.Text :> QueryParam "password" T.Text :> Post '[JSON] Value
 authoriseBearerToken = client (Proxy.Proxy :: Proxy.Proxy AuthenticationAPI)
 
+
+type HotPostsAPI = Header "User-Agent" T.Text :> Header "Authorization" BearerToken :> "r" :> Capture "subreddit" T.Text :> "hot" :> QueryParam "limit" Integer :> Get '[JSON] Value
+hotposts = client (Proxy.Proxy :: Proxy.Proxy HotPostsAPI)
+
+-- Note: the BearerToken parameter needs "bearer " sticking on the
+-- front. I'd rather this be a BearerTokenHeader that does this
+-- automatically so you just pass in the bearer token. How do I do
+-- that? Do I need to define a new Header-like path component?
+
+-- user agent header is a bit icky here: would prefer to specify it once
+-- for the whole API rather than passing it in for each invocation of
+-- a client call. (and possibly likewise, with some scoping, for the
+-- bearer token)
+
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
+
+redditOAuthBaseUrl :: BaseUrl
+redditOAuthBaseUrl = BaseUrl Https "oauth.reddit.com" 443 ""
 
 getHotPosts :: BearerToken -> IO (V.Vector Value)
 getHotPosts bearerToken = do
+  manager <- newManager tlsManagerSettings
+  res <- runExceptT (hotposts (Just userAgent) (Just $ "bearer " <> bearerToken) "londonsocialclub" (Just 100) manager redditOAuthBaseUrl)
+
+  let (Right rightRes) = res
+  return $ rightRes ^. key "data" . key "children" . _Array
+
+getHotPostsOld :: BearerToken -> IO (V.Vector Value)
+getHotPostsOld bearerToken = do
   progress "Getting hot posts"
 
   let opts = defaults
