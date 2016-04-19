@@ -2,6 +2,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiWayIf #-}
 
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeOperators #-}
+
 -- todaybot
 -- ben clifford benc@hawaga.org.uk
 
@@ -14,7 +17,9 @@ import Control.Concurrent (threadDelay)
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
 import Control.Monad hiding (mapM_)
+import Control.Monad.Trans.Except (ExceptT, runExceptT)
 import Data.Maybe (fromMaybe)
+import qualified Data.Proxy as Proxy
 import Data.Time.Calendar
 import Data.Time.Clock
 import Data.Time.LocalTime
@@ -30,8 +35,8 @@ import Network.Wreq (auth,
                      header,
                      param,
                      postWith,
-                     responseBody,
                      Part (..) )
+import qualified Network.Wreq as Wreq
 import Data.Monoid ( (<>) )
 import qualified Control.Lens.Getter as Getter
 import qualified Text.Parsec as P
@@ -42,6 +47,11 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString as BSS
 import qualified Data.ByteString.Char8 as BSS8
+import Network.HTTP.Client (Manager, newManager)
+import Network.HTTP.Client.TLS (tlsManagerSettings)
+
+import Servant.Client
+import Servant.API
 
 data Configuration = Configuration {
   username :: T.Text,
@@ -75,18 +85,19 @@ authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.en
 
 authenticate :: Configuration -> IO BearerToken
 authenticate configuration = do
-  progress "Authenticating"
+  progress "Authenticating using servant"
+  manager <- newManager tlsManagerSettings
+  let authdata = BasicAuthData (app_id configuration) (app_secret configuration)
+  (Right res) <- runExceptT (authcall authdata (Just "password") (Just $ username configuration) (Just $ password configuration) manager (BaseUrl Https "www.reddit.com" 443 "")) 
+  print res
+  let token = res ^. key "access_token" . _String
+  print token
+  return token
 
-  let opts = defaults
-           & userAgentHeader
-           & param "grant_type" .~ ["password"]
-           & param "username" .~ [username configuration]
-           & param "password" .~ [password configuration]
-           & auth ?~ basicAuth (app_id configuration) (app_secret configuration)
-
-  resp <- postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
-
-  return $ resp ^. responseBody . key "access_token" . _String
+type AuthenticationAPI = BasicAuth "reddit" T.Text :> "api" :> "v1" :> "access_token" :> QueryParam "grant_type" T.Text :> QueryParam "username" T.Text :> QueryParam "password" T.Text :> Post '[JSON] Value
+api :: Proxy.Proxy AuthenticationAPI
+api = Proxy.Proxy
+authcall = client api
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
@@ -98,7 +109,7 @@ getHotPosts bearerToken = do
            & authorizationHeader bearerToken
            & userAgentHeader
   resp <- getWith opts hotPostsUrl
-  return $ resp ^. responseBody . key "data" . key "children" . _Array
+  return $ resp ^. (Wreq.responseBody) . key "data" . key "children" . _Array
 
 
 readConfiguration = do
