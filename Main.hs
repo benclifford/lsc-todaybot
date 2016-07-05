@@ -233,16 +233,16 @@ postFlairText = key "data" . key "link_flair_text" . _String
 postFlairCss = key "data" . key "link_flair_css_class" . _String
 postTitle = key "data" . key "title" . _String
 
-forceFlair bearerToken post forced_flair forced_flair_css = io $ do
+forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
-  T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
+  io $ T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
   let flair_text = post ^. postFlairText
   let flair_css = post ^. postFlairCss
   if flair_text == forced_flair && flair_css == forced_flair_css
-    then progress "    No flair change necessary"
-    else do progress "    Updating flair"
+    then io $ progress "    No flair change necessary"
+    else do io $ progress "    Updating flair"
             let opts = defaults
                      & authorizationHeader bearerToken
                      & param "api_type" .~ ["json"]
@@ -250,7 +250,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = io $ do
                      & param "text" .~ [forced_flair]
                      & param "css_class" .~ [forced_flair_css]
 
-            postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
+            io $ postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
             -- TODO check if successful
             return ()
 
