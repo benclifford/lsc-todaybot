@@ -124,7 +124,10 @@ readConfiguration = liftUIO $ UIO $ do
 
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
-processPost bearerToken post = liftUIO $ UIO $ do
+io a = liftUIO $ UIO a
+
+processPost :: EffUIO m => T.Text -> Value -> m ()
+processPost bearerToken post = do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
@@ -132,15 +135,15 @@ processPost bearerToken post = liftUIO $ UIO $ do
   let flair_css = post ^. postFlairCss
   let title = post ^. postTitle
   let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
-  T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
-  when stickied $ T.putStr " [Stickied]"
-  T.putStrLn ""
+  io $ T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
+  when stickied $ io $ T.putStr " [Stickied]"
+  io $ T.putStrLn ""
 
   -- if flair has been modified (other than to Today) then
   -- stay away...
   let changeableFlair = flair_text == "Today" || flair_text == ""
 
-  progress $ "    Changeable flair? " <> (show changeableFlair)
+  io $ progress $ "    Changeable flair? " <> (show changeableFlair)
 
   when changeableFlair $ do
   -- today?
@@ -150,8 +153,8 @@ processPost bearerToken post = liftUIO $ UIO $ do
 
     case parsedDate of
       Right postDate -> do
-        progress $ "    Post date is " <> (show postDate)
-        now <- localDay <$> getCurrentLocalTime
+        io $ progress $ "    Post date is " <> (show postDate)
+        now <- localDay <$> (io getCurrentLocalTime)
 
         -- posts move through a sequence of no flair, then today,
         -- then archived, except we do not archive stickied posts
@@ -160,17 +163,17 @@ processPost bearerToken post = liftUIO $ UIO $ do
         -- to leave stickied, with the today flair substituted back to
         -- nothing - then if someone unstickies, it will get archived flair
         -- in a future run.
-        if | postDate > now -> progress $ "    Skipping: Post is in future"
-           | postDate == now -> forceFlair bearerToken post "Today" "today"
-           | postDate < now && not stickied -> forceFlair bearerToken post "Archived" "archived"
-           | postDate < now && stickied -> forceFlair bearerToken post "" ""
+        if | postDate > now -> io $ progress $ "    Skipping: Post is in future"
+           | postDate == now -> io $ forceFlair bearerToken post "Today" "today"
+           | postDate < now && not stickied -> io $ forceFlair bearerToken post "Archived" "archived"
+           | postDate < now && stickied -> io $ forceFlair bearerToken post "" ""
 
-      Left e -> progress $ "    Skipping: Date did not parse: " <> (show e)
+      Left e -> io $ progress $ "    Skipping: Date did not parse: " <> (show e)
 
     let interestCheck = (T.toCaseFold "[Interest") `T.isPrefixOf` (T.toCaseFold title)
-    progress $ "    Interest check? " <> (show interestCheck)
+    io $ progress $ "    Interest check? " <> (show interestCheck)
 
-    when interestCheck $ forceFlair bearerToken post "Interest Check" "interestcheck"
+    when interestCheck $ io $ forceFlair bearerToken post "Interest Check" "interestcheck"
 
   -- because we love the royal george
   {-
