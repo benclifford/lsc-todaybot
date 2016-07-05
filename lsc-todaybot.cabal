@@ -27,6 +27,8 @@ executable lsc-todaybot
                       ,parsec
                       ,text
                       ,time
+                      ,transformers
+                      ,transformers-eff
                       ,vector
                       ,wreq
                       ,yaml

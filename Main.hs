@@ -8,12 +8,19 @@
 -- used https://www.fpcomplete.com/school/to-infinity-and-beyond/competition-winners/interfacing-with-restful-json-apis
 -- as a tutorial
 
+
+import qualified Control.Effect as Effect
+import qualified Control.Effect.Environment as Environment
+import qualified Control.Effect.IO as IO
+import Control.Effect.IO
+
 import Prelude hiding (mapM_)
 import Control.Applicative ( (<$>), (<|>), many )
 import Control.Concurrent (threadDelay)
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
 import Control.Monad hiding (mapM_)
+import Control.Monad.Trans.Class (lift)
 import Data.Maybe (fromMaybe)
 import Data.Time.Calendar
 import Data.Time.Clock
@@ -57,25 +64,30 @@ main = do
 
   configuration <- readConfiguration   
 
-  forever $ do
-    skipExceptions $ mainLoop configuration
+  (flip Environment.runInEnvironment) configuration $ forever $ do
+    configuration <- Environment.ask
+    {- skipExceptions ... -}
+    mainLoop
     sleep 13
 
-mainLoop configuration = do
+mainLoop = do
+ configuration <- Environment.ask
 
-  bearerToken <- authenticate configuration
-  posts <- getHotPosts bearerToken
-  mapM_ (skipExceptions . (processPost bearerToken)) posts
-  progress "Pass completed."
+ bearerToken <- authenticate
+ posts <- getHotPosts bearerToken
+  -- mapM_ ( skipExceptions . (processPost bearerToken)) posts
+ mapM_ (processPost bearerToken) posts
+ liftUIO $ UIO $ progress "Pass completed."
 
 skipExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
 
-authenticate :: Configuration -> IO BearerToken
-authenticate configuration = do
-  progress "Authenticating"
+-- authenticate :: Configuration -> IO BearerToken
+authenticate = do
+  configuration <- Environment.ask
+  liftUIO $ UIO $ progress "Authenticating"
 
   let opts = defaults
            & userAgentHeader
@@ -84,24 +96,24 @@ authenticate configuration = do
            & param "password" .~ [password configuration]
            & auth ?~ basicAuth (app_id configuration) (app_secret configuration)
 
-  resp <- postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
+  resp <- liftUIO $ UIO $ postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
 
   return $ resp ^. responseBody . key "access_token" . _String
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
-getHotPosts :: BearerToken -> IO (V.Vector Value)
+-- getHotPosts :: BearerToken -> IO (V.Vector Value)
 getHotPosts bearerToken = do
-  progress "Getting hot posts"
+  liftUIO $ UIO $ progress "Getting hot posts"
 
   let opts = defaults
            & authorizationHeader bearerToken
            & userAgentHeader
-  resp <- getWith opts hotPostsUrl
+  resp <- liftUIO $ UIO $ getWith opts hotPostsUrl
   return $ resp ^. responseBody . key "data" . key "children" . _Array
 
 
-readConfiguration = do
+readConfiguration = liftUIO $ UIO $ do
   configYaml :: Value <- fromMaybe (error "Cannot parse config file")  <$> decodeFile "secrets.yaml"
   return $ Configuration {
     username = configYaml ^. key "username" . _String,
@@ -112,7 +124,7 @@ readConfiguration = do
 
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
-processPost bearerToken post = do
+processPost bearerToken post = liftUIO $ UIO $ do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
@@ -243,5 +255,5 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
 progress s = hPutStrLn stderr s
 
 -- | sleeps for specified number of minutes
-sleep mins = threadDelay (mins * 60 * 1000000)
+sleep mins = liftUIO $ UIO $ threadDelay (mins * 60 * 1000000)
 
