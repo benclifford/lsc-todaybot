@@ -164,16 +164,16 @@ processPost bearerToken post = do
         -- nothing - then if someone unstickies, it will get archived flair
         -- in a future run.
         if | postDate > now -> io $ progress $ "    Skipping: Post is in future"
-           | postDate == now -> io $ forceFlair bearerToken post "Today" "today"
-           | postDate < now && not stickied -> io $ forceFlair bearerToken post "Archived" "archived"
-           | postDate < now && stickied -> io $ forceFlair bearerToken post "" ""
+           | postDate == now -> forceFlair bearerToken post "Today" "today"
+           | postDate < now && not stickied -> forceFlair bearerToken post "Archived" "archived"
+           | postDate < now && stickied -> forceFlair bearerToken post "" ""
 
       Left e -> io $ progress $ "    Skipping: Date did not parse: " <> (show e)
 
     let interestCheck = (T.toCaseFold "[Interest") `T.isPrefixOf` (T.toCaseFold title)
     io $ progress $ "    Interest check? " <> (show interestCheck)
 
-    when interestCheck $ io $ forceFlair bearerToken post "Interest Check" "interestcheck"
+    when interestCheck $ forceFlair bearerToken post "Interest Check" "interestcheck"
 
   -- because we love the royal george
   {-
@@ -233,7 +233,7 @@ postFlairText = key "data" . key "link_flair_text" . _String
 postFlairCss = key "data" . key "link_flair_css_class" . _String
 postTitle = key "data" . key "title" . _String
 
-forceFlair bearerToken post forced_flair forced_flair_css = do
+forceFlair bearerToken post forced_flair forced_flair_css = io $ do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
