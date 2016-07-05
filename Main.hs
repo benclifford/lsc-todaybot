@@ -143,7 +143,7 @@ processPost bearerToken post = do
   -- stay away...
   let changeableFlair = flair_text == "Today" || flair_text == ""
 
-  io $ progress $ "    Changeable flair? " <> (show changeableFlair)
+  progress $ "    Changeable flair? " <> (show changeableFlair)
 
   when changeableFlair $ do
   -- today?
@@ -153,7 +153,7 @@ processPost bearerToken post = do
 
     case parsedDate of
       Right postDate -> do
-        io $ progress $ "    Post date is " <> (show postDate)
+        progress $ "    Post date is " <> (show postDate)
         now <- localDay <$> (io getCurrentLocalTime)
 
         -- posts move through a sequence of no flair, then today,
@@ -163,15 +163,15 @@ processPost bearerToken post = do
         -- to leave stickied, with the today flair substituted back to
         -- nothing - then if someone unstickies, it will get archived flair
         -- in a future run.
-        if | postDate > now -> io $ progress $ "    Skipping: Post is in future"
+        if | postDate > now -> progress $ "    Skipping: Post is in future"
            | postDate == now -> forceFlair bearerToken post "Today" "today"
            | postDate < now && not stickied -> forceFlair bearerToken post "Archived" "archived"
            | postDate < now && stickied -> forceFlair bearerToken post "" ""
 
-      Left e -> io $ progress $ "    Skipping: Date did not parse: " <> (show e)
+      Left e -> progress $ "    Skipping: Date did not parse: " <> (show e)
 
     let interestCheck = (T.toCaseFold "[Interest") `T.isPrefixOf` (T.toCaseFold title)
-    io $ progress $ "    Interest check? " <> (show interestCheck)
+    progress $ "    Interest check? " <> (show interestCheck)
 
     when interestCheck $ forceFlair bearerToken post "Interest Check" "interestcheck"
 
@@ -241,8 +241,8 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
   let flair_text = post ^. postFlairText
   let flair_css = post ^. postFlairCss
   if flair_text == forced_flair && flair_css == forced_flair_css
-    then io $ progress "    No flair change necessary"
-    else do io $ progress "    Updating flair"
+    then progress "    No flair change necessary"
+    else do progress "    Updating flair"
             let opts = defaults
                      & authorizationHeader bearerToken
                      & param "api_type" .~ ["json"]
@@ -254,8 +254,8 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
             -- TODO check if successful
             return ()
 
-
-progress s = hPutStrLn stderr s
+progress :: EffUIO m => String -> m ()
+progress s = io $ hPutStrLn stderr s
 
 -- | sleeps for specified number of minutes
 sleep mins = liftUIO $ UIO $ threadDelay (mins * 60 * 1000000)
