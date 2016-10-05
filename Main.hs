@@ -52,6 +52,7 @@ data Configuration = Configuration {
 
 type BearerToken = T.Text
 
+main :: IO ()
 main = do
   progress "todaybot"
 
