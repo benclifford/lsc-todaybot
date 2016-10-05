@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -- todaybot
 -- ben clifford benc@hawaga.org.uk
@@ -43,6 +44,10 @@ import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString as BSS
 import qualified Data.ByteString.Char8 as BSS8
 
+import qualified Control.Monad.Catch as MC
+import qualified Control.Monad.IO.Class as MIO
+import qualified Control.Monad.Reader as MR
+
 data Configuration = Configuration {
   username :: T.Text,
   password :: T.Text,
@@ -58,10 +63,16 @@ main = do
 
   configuration <- readConfiguration   
 
-  forever $ do
-    skipExceptions $ mainLoop configuration
-    sleep 13
+  MR.runReaderT body configuration
 
+body :: (MIO.MonadIO m, MC.MonadCatch m, MR.MonadReader Configuration m) => m ()
+body = 
+  forever $ do
+      (configuration :: Configuration) <- MR.ask
+      skipExceptions $ mainLoop configuration
+      sleep 13
+
+mainLoop :: (MC.MonadCatch m, MIO.MonadIO m) => Configuration -> m ()
 mainLoop configuration = do
 
   bearerToken <- authenticate configuration
@@ -69,12 +80,13 @@ mainLoop configuration = do
   mapM_ (skipExceptions . (processPost bearerToken)) posts
   progress "Pass completed."
 
-skipExceptions a = a `catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
+skipExceptions :: (MIO.MonadIO m, MC.MonadCatch m) => m () -> m ()
+skipExceptions a = a `MC.catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
 
-authenticate :: Configuration -> IO BearerToken
+authenticate :: MIO.MonadIO m => Configuration -> m BearerToken
 authenticate configuration = do
   progress "Authenticating"
 
@@ -85,20 +97,20 @@ authenticate configuration = do
            & param "password" .~ [password configuration]
            & auth ?~ basicAuth (app_id configuration) (app_secret configuration)
 
-  resp <- postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
+  resp <- MIO.liftIO $ postWith opts ("https://www.reddit.com/api/v1/access_token") ([] :: [Part])
 
   return $ resp ^. responseBody . key "access_token" . _String
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
-getHotPosts :: BearerToken -> IO (V.Vector Value)
+getHotPosts :: MIO.MonadIO m => BearerToken -> m (V.Vector Value)
 getHotPosts bearerToken = do
   progress "Getting hot posts"
 
   let opts = defaults
            & authorizationHeader bearerToken
            & userAgentHeader
-  resp <- getWith opts hotPostsUrl
+  resp <- MIO.liftIO $ getWith opts hotPostsUrl
   return $ resp ^. responseBody . key "data" . key "children" . _Array
 
 
@@ -113,6 +125,7 @@ readConfiguration = do
 
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
+processPost :: MIO.MonadIO m => BearerToken -> Value -> m ()
 processPost bearerToken post = do
   let kind = post ^. postKind
   let i = post ^. postId
@@ -121,9 +134,9 @@ processPost bearerToken post = do
   let flair_css = post ^. postFlairCss
   let title = post ^. postTitle
   let stickied = fromMaybe False $ post ^? key "data" . key "stickied" . _Bool
-  T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
-  when stickied $ T.putStr " [Stickied]"
-  T.putStrLn ""
+  MIO.liftIO $ T.putStr $ fullname <> ": " <> title <> " [" <> flair_text <> "/" <> flair_css <> "]"
+  when stickied $ MIO.liftIO $ T.putStr " [Stickied]"
+  MIO.liftIO $ T.putStrLn ""
 
   -- if flair has been modified (other than to Today) then
   -- stay away...
@@ -140,7 +153,7 @@ processPost bearerToken post = do
     case parsedDate of
       Right postDate -> do
         progress $ "    Post date is " <> (show postDate)
-        now <- localDay <$> getCurrentLocalTime
+        now <- localDay <$> (MIO.liftIO getCurrentLocalTime)
 
         -- posts move through a sequence of no flair, then today,
         -- then archived, except we do not archive stickied posts
@@ -223,7 +236,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
-  T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
+  MIO.liftIO $ T.putStrLn $ "    Setting flair for " <> fullname <> " to " <> forced_flair <> " if necessary"
   let flair_text = post ^. postFlairText
   let flair_css = post ^. postFlairCss
   if flair_text == forced_flair && flair_css == forced_flair_css
@@ -236,13 +249,14 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
                      & param "text" .~ [forced_flair]
                      & param "css_class" .~ [forced_flair_css]
 
-            postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
+            MIO.liftIO $ postWith opts "https://oauth.reddit.com/r/LondonSocialClub/api/flair" ([] :: [Part])
             -- TODO check if successful
             return ()
 
 
-progress s = hPutStrLn stderr s
+progress s = MIO.liftIO $ hPutStrLn stderr s
 
 -- | sleeps for specified number of minutes
-sleep mins = threadDelay (mins * 60 * 1000000)
+sleep :: MR.MonadIO m => Int -> m ()
+sleep mins = MIO.liftIO $ threadDelay (mins * 60 * 1000000)
 

@@ -22,11 +22,14 @@ executable lsc-todaybot
   build-depends:       base
                       ,aeson
                       ,bytestring
+                      ,exceptions
                       ,lens
                       ,lens-aeson
+                      ,mtl
                       ,parsec
                       ,text
                       ,time
+                      ,transformers
                       ,vector
                       ,wreq
                       ,yaml
