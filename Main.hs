@@ -75,9 +75,11 @@ mainLoop :: (MC.MonadCatch m, MIO.MonadIO m, MR.MonadReader Configuration m) => 
 mainLoop = do
 
   bearerToken <- authenticate
-  posts <- getHotPosts bearerToken
-  mapM_ (skipExceptions . (processPost bearerToken)) posts
-  progress "Pass completed."
+
+  (flip MR.runReaderT) bearerToken $ do
+    posts <- getHotPosts
+    mapM_ (skipExceptions . processPost) posts
+    progress "Pass completed."
 
 skipExceptions :: (MIO.MonadIO m, MC.MonadCatch m) => m () -> m ()
 skipExceptions a = a `MC.catch` \(e :: SomeException) -> progress $ "Exception: " <> (show e)
@@ -103,10 +105,11 @@ authenticate = do
 
 hotPostsUrl = "https://oauth.reddit.com/r/LondonSocialClub/hot?limit=100"
 
-getHotPosts :: MIO.MonadIO m => BearerToken -> m (V.Vector Value)
-getHotPosts bearerToken = do
+getHotPosts :: (MR.MonadReader BearerToken m, MIO.MonadIO m) => m (V.Vector Value)
+getHotPosts = do
   progress "Getting hot posts"
 
+  bearerToken :: BearerToken <- MR.ask
   let opts = defaults
            & authorizationHeader bearerToken
            & userAgentHeader
@@ -125,8 +128,8 @@ readConfiguration = do
 
 _ByteString = _String . Getter.to (T.unpack) . Getter.to (BSS8.pack)
 
-processPost :: MIO.MonadIO m => BearerToken -> Value -> m ()
-processPost bearerToken post = do
+processPost :: (MR.MonadReader BearerToken m, MIO.MonadIO m) => Value -> m ()
+processPost post = do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
@@ -163,16 +166,16 @@ processPost bearerToken post = do
         -- nothing - then if someone unstickies, it will get archived flair
         -- in a future run.
         if | postDate > now -> progress $ "    Skipping: Post is in future"
-           | postDate == now -> forceFlair bearerToken post "Today" "today"
-           | postDate < now && not stickied -> forceFlair bearerToken post "Archived" "archived"
-           | postDate < now && stickied -> forceFlair bearerToken post "" ""
+           | postDate == now -> forceFlair post "Today" "today"
+           | postDate < now && not stickied -> forceFlair post "Archived" "archived"
+           | postDate < now && stickied -> forceFlair post "" ""
 
       Left e -> progress $ "    Skipping: Date did not parse: " <> (show e)
 
     let interestCheck = (T.toCaseFold "[Interest") `T.isPrefixOf` (T.toCaseFold title)
     progress $ "    Interest check? " <> (show interestCheck)
 
-    when interestCheck $ forceFlair bearerToken post "Interest Check" "interestcheck"
+    when interestCheck $ forceFlair post "Interest Check" "interestcheck"
 
   -- because we love the royal george
   {-
@@ -232,7 +235,7 @@ postFlairText = key "data" . key "link_flair_text" . _String
 postFlairCss = key "data" . key "link_flair_css_class" . _String
 postTitle = key "data" . key "title" . _String
 
-forceFlair bearerToken post forced_flair forced_flair_css = do
+forceFlair post forced_flair forced_flair_css = do
   let kind = post ^. postKind
   let i = post ^. postId
   let fullname = kind <> "_" <> i
@@ -242,6 +245,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
   if flair_text == forced_flair && flair_css == forced_flair_css
     then progress "    No flair change necessary"
     else do progress "    Updating flair"
+            bearerToken :: BearerToken <- MR.ask
             let opts = defaults
                      & authorizationHeader bearerToken
                      & param "api_type" .~ ["json"]
