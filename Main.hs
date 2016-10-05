@@ -68,14 +68,13 @@ main = do
 body :: (MIO.MonadIO m, MC.MonadCatch m, MR.MonadReader Configuration m) => m ()
 body = 
   forever $ do
-      (configuration :: Configuration) <- MR.ask
-      skipExceptions $ mainLoop configuration
+      skipExceptions $ mainLoop
       sleep 13
 
-mainLoop :: (MC.MonadCatch m, MIO.MonadIO m) => Configuration -> m ()
-mainLoop configuration = do
+mainLoop :: (MC.MonadCatch m, MIO.MonadIO m, MR.MonadReader Configuration m) => m ()
+mainLoop = do
 
-  bearerToken <- authenticate configuration
+  bearerToken <- authenticate
   posts <- getHotPosts bearerToken
   mapM_ (skipExceptions . (processPost bearerToken)) posts
   progress "Pass completed."
@@ -86,9 +85,10 @@ skipExceptions a = a `MC.catch` \(e :: SomeException) -> progress $ "Exception: 
 userAgentHeader = header "User-Agent" .~ ["lsc-todaybot by u/benclifford"]
 authorizationHeader bearerToken = header "Authorization" .~ ["bearer " <> (TE.encodeUtf8 bearerToken)]
 
-authenticate :: MIO.MonadIO m => Configuration -> m BearerToken
-authenticate configuration = do
+authenticate :: (MR.MonadReader Configuration m, MIO.MonadIO m) => m BearerToken
+authenticate = do
   progress "Authenticating"
+  (configuration :: Configuration) <- MR.ask
 
   let opts = defaults
            & userAgentHeader
