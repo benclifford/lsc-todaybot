@@ -9,7 +9,7 @@
 -- as a tutorial
 
 import Prelude hiding (mapM_)
-import Control.Applicative ( (<$>), (<|>), many )
+import Control.Applicative ( (<|>), many )
 import Control.Concurrent (threadDelay)
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
@@ -31,7 +31,7 @@ import Network.Wreq (auth,
                      param,
                      postWith,
                      responseBody,
-                     Part (..) )
+                     Part )
 import Data.Monoid ( (<>) )
 import qualified Control.Lens.Getter as Getter
 import qualified Text.Parsec as P
@@ -39,7 +39,6 @@ import qualified Data.Vector as V
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as TE
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString as BSS
 import qualified Data.ByteString.Char8 as BSS8
 
