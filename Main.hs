@@ -9,7 +9,7 @@
 -- as a tutorial
 
 import Prelude hiding (mapM_)
-import Control.Applicative ( (<|>), many )
+import Control.Applicative ( many )
 import Control.Concurrent (threadDelay)
 import Control.Exception (catch, SomeException (..) )
 import Control.Lens
