@@ -171,16 +171,9 @@ processPost bearerToken post = do
 -- expecting (from automod config)
 --   e (regex): "\\[([0-9]{1,2}[/.-][0-9]{1,2}[/.-]([0-9]{2}|[0-9]{4})|interest( check)?)\\].*"
 
-datedSubjectLine = prefixDatedSubjectLine
-               <|> postfixDatedSubjectLine
-
-prefixDatedSubjectLine = dateBlock
-  -- ignore the rest of the line...
-
-postfixDatedSubjectLine = do
+datedSubjectLine = do
   many $ P.noneOf "["
   d <- dateBlock
-  P.eof
   return d
 
 dateBlock = do
