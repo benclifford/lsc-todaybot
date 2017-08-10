@@ -198,6 +198,7 @@ normaliseYear year =
   case () of
     _ | year > 2000 -> year
     _ | year >= 0 && year < 100 -> 2000 + year -- hello, 2100!
+    _ -> error $ "Cannot normalise year " ++ show year
 
 getCurrentLocalTime = do
   nowUTC <- getCurrentTime
