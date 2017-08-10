@@ -186,7 +186,7 @@ dateBlock = do
   P.char ']'
   return $ fromGregorian year month day
 
-dateSeparator = P.oneOf "/-."
+dateSeparator = P.oneOf "/-.\\"
 
 dateComponent = read <$> digits
 
