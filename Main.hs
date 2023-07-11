@@ -49,6 +49,8 @@ data Configuration = Configuration {
   app_secret :: BSS.ByteString
 }
 
+sleepMinutes = 3
+
 type BearerToken = T.Text
 
 main = do
@@ -58,7 +60,7 @@ main = do
 
   forever $ do
     skipExceptions $ mainLoop configuration
-    sleep 13
+    sleep sleepMinutes
 
 mainLoop configuration = do
 
