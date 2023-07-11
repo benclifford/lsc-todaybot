@@ -22,7 +22,7 @@ import Data.Foldable (mapM_)
 import Data.Aeson ( Value(..) )
 import Data.Aeson.Lens (key, _Bool, _String, _Array)
 import Data.Yaml (decodeFile)
-import System.IO (hPutStrLn, stderr)
+import System.IO (hPutStrLn, stdout)
 import Network.Wreq (auth,
                      basicAuth,
                      defaults,
@@ -235,7 +235,7 @@ forceFlair bearerToken post forced_flair forced_flair_css = do
             return ()
 
 
-progress s = hPutStrLn stderr s
+progress s = hPutStrLn stdout s
 
 -- | sleeps for specified number of minutes
 sleep mins = threadDelay (mins * 60 * 1000000)
